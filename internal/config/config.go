@@ -10,12 +10,13 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server" json:"server"`
-	Database DatabaseConfig `yaml:"database" json:"database"`
-	Sync     SyncConfig     `yaml:"sync" json:"sync"`
-	Log      LogConfig      `yaml:"log" json:"log"`
-	Pairs    []SyncPair     `yaml:"pairs" json:"pairs"`
-	Provider []ProviderConf `yaml:"providers" json:"providers"`
+	Server       ServerConfig       `yaml:"server" json:"server"`
+	Database     DatabaseConfig     `yaml:"database" json:"database"`
+	Sync         SyncConfig         `yaml:"sync" json:"sync"`
+	Log          LogConfig          `yaml:"log" json:"log"`
+	Notification NotificationConfig `yaml:"notification" json:"notification"`
+	Pairs        []SyncPair         `yaml:"pairs" json:"pairs"`
+	Provider     []ProviderConf     `yaml:"providers" json:"providers"`
 }
 
 type ServerConfig struct {
@@ -47,15 +48,31 @@ type LogConfig struct {
 	Path   string `yaml:"path" json:"path"`
 }
 
+type NotificationConfig struct {
+	WebhookURL string      `yaml:"webhook_url" json:"webhook_url"`
+	Email      EmailConfig `yaml:"email" json:"email"`
+}
+
+type EmailConfig struct {
+	SMTPAddr string   `yaml:"smtp_addr" json:"smtp_addr"`
+	Username string   `yaml:"username" json:"username"`
+	Password string   `yaml:"password" json:"password"`
+	From     string   `yaml:"from" json:"from"`
+	To       []string `yaml:"to" json:"to"`
+}
+
 type SyncPair struct {
-	Name       string `yaml:"name" json:"name"`
-	LocalPath  string `yaml:"local_path" json:"local_path"`
-	RemotePath string `yaml:"remote_path" json:"remote_path"`
-	Provider   string `yaml:"provider" json:"provider"`
-	Mode       string `yaml:"mode" json:"mode"`           // mirror, selective, virtual
-	Direction  string `yaml:"direction" json:"direction"` // up, down, both
-	Enabled    bool   `yaml:"enabled" json:"enabled"`
-	Schedule   string `yaml:"schedule" json:"schedule"`
+	Name             string   `yaml:"name" json:"name"`
+	LocalPath        string   `yaml:"local_path" json:"local_path"`
+	RemotePath       string   `yaml:"remote_path" json:"remote_path"`
+	Provider         string   `yaml:"provider" json:"provider"`
+	Mode             string   `yaml:"mode" json:"mode"`           // mirror, selective, virtual
+	Direction        string   `yaml:"direction" json:"direction"` // up, down, both
+	Enabled          bool     `yaml:"enabled" json:"enabled"`
+	Schedule         string   `yaml:"schedule" json:"schedule"`
+	IncludePatterns  []string `yaml:"include_patterns" json:"include_patterns"`
+	ExcludePatterns  []string `yaml:"exclude_patterns" json:"exclude_patterns"`
+	ConflictStrategy string   `yaml:"conflict_strategy" json:"conflict_strategy"` // latest_wins, local_wins, remote_wins, manual
 }
 
 type ProviderConf struct {
@@ -188,6 +205,15 @@ log:
   level: "` + cfg.Log.Level + `"
   format: "` + cfg.Log.Format + `"
   path: "` + cfg.Log.Path + `"
+
+notification:
+  webhook_url: ""
+  email:
+    smtp_addr: ""
+    username: ""
+    password: ""
+    from: ""
+    to: []
 
 providers: []
 

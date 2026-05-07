@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/smtp"
 	"path"
 	"runtime"
 	"strings"
@@ -33,6 +37,8 @@ const (
 	TaskDelete   TaskType = "delete"
 	TaskMove     TaskType = "move"
 	TaskHash     TaskType = "hash"
+	TaskVirtual  TaskType = "virtual"
+	TaskConflict TaskType = "conflict"
 )
 
 const partialSuffix = ".every-sync.part"
@@ -64,6 +70,12 @@ type Config struct {
 	DownloadLimit   int64
 	ChunkSize       int64
 	ChunkThreshold  int64
+	WebhookURL      string
+	EmailSMTPAddr   string
+	EmailUsername   string
+	EmailPassword   string
+	EmailFrom       string
+	EmailTo         []string
 	DryRun          bool
 }
 
@@ -95,27 +107,32 @@ type Event struct {
 }
 
 type Status struct {
-	Running         bool         `json:"running"`
-	StartedAt       *time.Time   `json:"started_at,omitempty"`
-	RegisteredPairs int          `json:"registered_pairs"`
-	Pending         int64        `json:"pending"`
-	MaxWorkers      int          `json:"max_workers"`
-	ScanInterval    string       `json:"scan_interval"`
-	UploadLimit     int64        `json:"upload_limit"`
-	DownloadLimit   int64        `json:"download_limit"`
-	ChunkSize       int64        `json:"chunk_size"`
-	ChunkThreshold  int64        `json:"chunk_threshold"`
-	Pairs           []PairStatus `json:"pairs"`
+	Running         bool             `json:"running"`
+	StartedAt       *time.Time       `json:"started_at,omitempty"`
+	RegisteredPairs int              `json:"registered_pairs"`
+	Pending         int64            `json:"pending"`
+	MaxWorkers      int              `json:"max_workers"`
+	ScanInterval    string           `json:"scan_interval"`
+	UploadLimit     int64            `json:"upload_limit"`
+	DownloadLimit   int64            `json:"download_limit"`
+	ChunkSize       int64            `json:"chunk_size"`
+	ChunkThreshold  int64            `json:"chunk_threshold"`
+	Stats           *store.SyncStats `json:"stats,omitempty"`
+	Pairs           []PairStatus     `json:"pairs"`
 }
 
 type PairStatus struct {
 	ID                 int64                 `json:"id"`
 	Name               string                `json:"name"`
 	Direction          string                `json:"direction"`
+	Mode               string                `json:"mode"`
 	Enabled            bool                  `json:"enabled"`
 	Provider           string                `json:"provider"`
 	LocalPath          string                `json:"local_path"`
 	RemotePath         string                `json:"remote_path"`
+	IncludePatterns    string                `json:"include_patterns"`
+	ExcludePatterns    string                `json:"exclude_patterns"`
+	ConflictStrategy   string                `json:"conflict_strategy"`
 	ResumableUpload    bool                  `json:"resumable_upload"`
 	ResumableDownload  bool                  `json:"resumable_download"`
 	LocalCapabilities  provider.Capabilities `json:"local_capabilities"`
@@ -309,10 +326,14 @@ func (e *Engine) Status() Status {
 			ID:                 pair.ID,
 			Name:               pair.Name,
 			Direction:          pair.Direction,
+			Mode:               pair.Mode,
 			Enabled:            pair.Enabled,
 			Provider:           pair.Provider,
 			LocalPath:          pair.LocalPath,
 			RemotePath:         pair.RemotePath,
+			IncludePatterns:    pair.IncludePatterns,
+			ExcludePatterns:    pair.ExcludePatterns,
+			ConflictStrategy:   pair.ConflictStrategy,
 			ResumableUpload:    localCaps.RangeRead && remoteCaps.ResumeWrite,
 			ResumableDownload:  remoteCaps.RangeRead && localCaps.ResumeWrite,
 			LocalCapabilities:  localCaps,
@@ -320,6 +341,7 @@ func (e *Engine) Status() Status {
 		})
 	}
 
+	stats, _ := e.store.GetSyncStats()
 	return Status{
 		Running:         e.running,
 		StartedAt:       e.startedAt,
@@ -331,6 +353,7 @@ func (e *Engine) Status() Status {
 		DownloadLimit:   e.config.DownloadLimit,
 		ChunkSize:       e.config.ChunkSize,
 		ChunkThreshold:  e.config.ChunkThreshold,
+		Stats:           stats,
 		Pairs:           pairs,
 	}
 }
@@ -405,6 +428,87 @@ func (e *Engine) SyncAll(ctx context.Context) error {
 	return nil
 }
 
+// MaterializeVirtual downloads one virtual file to the local side on demand.
+func (e *Engine) MaterializeVirtual(ctx context.Context, pairID int64, filePath string) error {
+	e.mu.RLock()
+	pair, ok := e.pairs[pairID]
+	local := e.locals[pairID]
+	remote := e.remotes[pairID]
+	e.mu.RUnlock()
+	if !ok || local == nil || remote == nil {
+		return fmt.Errorf("sync pair %d not found", pairID)
+	}
+	cleaned := path.Clean("/" + filePath)
+	if !pathAllowed(cleaned, splitPatterns(pair.IncludePatterns), splitPatterns(pair.ExcludePatterns)) {
+		return fmt.Errorf("path %s is filtered out by selective rules", cleaned)
+	}
+	if err := e.doDownload(ctx, pair, local, remote, cleaned); err != nil {
+		return err
+	}
+	_ = e.store.AddSyncStats(0, 0, 0, 0, 1, 0)
+	e.broadcast(Event{Type: "file_materialized", PairID: pair.ID, PairName: pair.Name, Path: cleaned})
+	return nil
+}
+
+// ResolveConflict applies a conflict strategy to a recorded conflict.
+func (e *Engine) ResolveConflict(ctx context.Context, conflictID int64, strategy string) error {
+	conflict, err := e.store.GetConflict(conflictID)
+	if err != nil {
+		return err
+	}
+	if conflict == nil {
+		return fmt.Errorf("conflict %d not found", conflictID)
+	}
+	if conflict.Status != "open" {
+		return nil
+	}
+
+	e.mu.RLock()
+	pair := e.pairs[conflict.SyncPairID]
+	local := e.locals[conflict.SyncPairID]
+	remote := e.remotes[conflict.SyncPairID]
+	e.mu.RUnlock()
+	if pair == nil || local == nil || remote == nil {
+		return fmt.Errorf("providers not found for pair %d", conflict.SyncPairID)
+	}
+
+	resolution := normalizeConflictStrategy(strategy)
+	if strings.EqualFold(strings.TrimSpace(strategy), "skip") {
+		resolution = "skip"
+	}
+	switch resolution {
+	case "local_wins":
+		if err := e.doUpload(ctx, pair, local, remote, conflict.Path); err != nil {
+			return err
+		}
+	case "remote_wins":
+		if err := e.doDownload(ctx, pair, local, remote, conflict.Path); err != nil {
+			return err
+		}
+	case "latest_wins":
+		localMeta, localErr := local.Stat(ctx, conflict.Path)
+		remoteMeta, remoteErr := remote.Stat(ctx, conflict.Path)
+		if localErr != nil || remoteErr != nil {
+			return fmt.Errorf("stat conflict sides: local=%v remote=%v", localErr, remoteErr)
+		}
+		tasks := latestWinsTask(pair.ID, conflict.Path, localMeta, remoteMeta)
+		if len(tasks) == 0 {
+			return e.store.ResolveConflict(conflictID, resolution)
+		}
+		if err := e.executeTask(ctx, tasks[0]); err != nil {
+			return err
+		}
+	case "skip", "manual":
+		resolution = "skip"
+	}
+
+	if err := e.store.ResolveConflict(conflictID, resolution); err != nil {
+		return err
+	}
+	e.broadcast(Event{Type: "conflict_resolved", PairID: pair.ID, PairName: pair.Name, Path: conflict.Path, Message: resolution})
+	return nil
+}
+
 func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, dir Direction) error {
 	logger.L.Info().Str("pair", pair.Name).Str("direction", string(dir)).Msg("syncing pair")
 
@@ -420,6 +524,8 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	if err != nil {
 		return fmt.Errorf("scan remote: %w", err)
 	}
+	localFiles = filterPairFiles(pair, localFiles)
+	remoteFiles = filterPairFiles(pair, remoteFiles)
 
 	logger.L.Info().
 		Str("pair", pair.Name).
@@ -554,53 +660,59 @@ func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*
 
 		switch dir {
 		case DirectionUp:
-			tasks = append(tasks, generateUpTasks(pair.ID, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+			tasks = append(tasks, generateUpTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
 		case DirectionDown:
-			tasks = append(tasks, generateDownTasks(pair.ID, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+			tasks = append(tasks, generateDownTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
 		case DirectionBoth:
-			tasks = append(tasks, generateBothTasks(pair.ID, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+			tasks = append(tasks, generateBothTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
 		}
 	}
 
 	return tasks
 }
 
-func generateUpTasks(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+func generateUpTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
 	if hasLocal {
 		if !hasRemote || !sameSnapshot(localMeta, remoteMeta) {
 			if entry == nil || !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
-				return []SyncTask{newTask(TaskUpload, pairID, key)}
+				return []SyncTask{newTask(TaskUpload, pair.ID, key)}
 			}
 		}
 		return nil
 	}
 
 	if hasRemote && isSynced(entry) && metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
-		return []SyncTask{newDeleteTask(pairID, key, "remote")}
+		return []SyncTask{newDeleteTask(pair.ID, key, "remote")}
 	}
 	return nil
 }
 
-func generateDownTasks(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+func generateDownTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
 	if hasRemote {
+		if isVirtualMode(pair) && (!hasLocal || isVirtual(entry)) {
+			if entry == nil || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) || !isVirtual(entry) {
+				return []SyncTask{newTask(TaskVirtual, pair.ID, key)}
+			}
+			return nil
+		}
 		if !hasLocal || !sameSnapshot(localMeta, remoteMeta) {
 			if entry == nil || !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
-				return []SyncTask{newTask(TaskDownload, pairID, key)}
+				return []SyncTask{newTask(TaskDownload, pair.ID, key)}
 			}
 		}
 		return nil
 	}
 
 	if hasLocal && isSynced(entry) && metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) {
-		return []SyncTask{newDeleteTask(pairID, key, "local")}
+		return []SyncTask{newDeleteTask(pair.ID, key, "local")}
 	}
 	return nil
 }
 
-func generateBothTasks(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+func generateBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
 	if hasLocal && hasRemote {
 		if entry == nil || !isSynced(entry) {
-			return latestWinsTask(pairID, key, localMeta, remoteMeta)
+			return conflictStrategyTasks(pair, key, localMeta, remoteMeta)
 		}
 
 		localChanged := !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize)
@@ -610,29 +722,48 @@ func generateBothTasks(pairID int64, key string, localMeta, remoteMeta *provider
 		case !localChanged && !remoteChanged:
 			return nil
 		case localChanged && !remoteChanged:
-			return []SyncTask{newTask(TaskUpload, pairID, key)}
+			return []SyncTask{newTask(TaskUpload, pair.ID, key)}
 		case !localChanged && remoteChanged:
-			return []SyncTask{newTask(TaskDownload, pairID, key)}
+			return []SyncTask{newTask(TaskDownload, pair.ID, key)}
 		default:
-			return latestWinsTask(pairID, key, localMeta, remoteMeta)
+			return conflictStrategyTasks(pair, key, localMeta, remoteMeta)
 		}
 	}
 
 	if hasLocal {
 		if isSynced(entry) && metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) {
-			return []SyncTask{newDeleteTask(pairID, key, "local")}
+			return []SyncTask{newDeleteTask(pair.ID, key, "local")}
 		}
-		return []SyncTask{newTask(TaskUpload, pairID, key)}
+		return []SyncTask{newTask(TaskUpload, pair.ID, key)}
 	}
 
 	if hasRemote {
-		if isSynced(entry) && metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
-			return []SyncTask{newDeleteTask(pairID, key, "remote")}
+		if isVirtualMode(pair) {
+			if entry == nil || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) || !isVirtual(entry) {
+				return []SyncTask{newTask(TaskVirtual, pair.ID, key)}
+			}
+			return nil
 		}
-		return []SyncTask{newTask(TaskDownload, pairID, key)}
+		if isSynced(entry) && metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
+			return []SyncTask{newDeleteTask(pair.ID, key, "remote")}
+		}
+		return []SyncTask{newTask(TaskDownload, pair.ID, key)}
 	}
 
 	return nil
+}
+
+func conflictStrategyTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta) []SyncTask {
+	switch normalizeConflictStrategy(pair.ConflictStrategy) {
+	case "manual":
+		return []SyncTask{newTask(TaskConflict, pair.ID, key)}
+	case "local_wins":
+		return []SyncTask{newTask(TaskUpload, pair.ID, key)}
+	case "remote_wins":
+		return []SyncTask{newTask(TaskDownload, pair.ID, key)}
+	default:
+		return latestWinsTask(pair.ID, key, localMeta, remoteMeta)
+	}
 }
 
 func latestWinsTask(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta) []SyncTask {
@@ -691,6 +822,23 @@ func isSynced(entry *store.FileEntry) bool {
 	return entry != nil && entry.SyncState == "synced"
 }
 
+func isVirtual(entry *store.FileEntry) bool {
+	return entry != nil && entry.SyncState == "virtual"
+}
+
+func isVirtualMode(pair *store.SyncPair) bool {
+	return pair != nil && strings.EqualFold(pair.Mode, "virtual")
+}
+
+func normalizeConflictStrategy(strategy string) string {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "manual", "local_wins", "remote_wins", "latest_wins":
+		return strings.ToLower(strings.TrimSpace(strategy))
+	default:
+		return "latest_wins"
+	}
+}
+
 func sameSnapshot(a, b *provider.FileMeta) bool {
 	if a == nil || b == nil {
 		return false
@@ -714,6 +862,66 @@ func timesClose(a, b time.Time) bool {
 		diff = -diff
 	}
 	return diff <= time.Second
+}
+
+func filterPairFiles(pair *store.SyncPair, files []*provider.FileMeta) []*provider.FileMeta {
+	if pair == nil || (strings.TrimSpace(pair.IncludePatterns) == "" && strings.TrimSpace(pair.ExcludePatterns) == "") {
+		return files
+	}
+
+	include := splitPatterns(pair.IncludePatterns)
+	exclude := splitPatterns(pair.ExcludePatterns)
+	filtered := make([]*provider.FileMeta, 0, len(files))
+	for _, file := range files {
+		if file == nil || !pathAllowed(file.Path, include, exclude) {
+			continue
+		}
+		filtered = append(filtered, file)
+	}
+	return filtered
+}
+
+func splitPatterns(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ','
+	})
+	patterns := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			patterns = append(patterns, field)
+		}
+	}
+	return patterns
+}
+
+func pathAllowed(filePath string, include, exclude []string) bool {
+	cleaned := strings.TrimPrefix(path.Clean(filePath), "/")
+	if len(include) > 0 && !matchesAnyPattern(cleaned, include) {
+		return false
+	}
+	return !matchesAnyPattern(cleaned, exclude)
+}
+
+func matchesAnyPattern(filePath string, patterns []string) bool {
+	for _, pattern := range patterns {
+		normalized := strings.TrimPrefix(path.Clean(pattern), "/")
+		if strings.HasPrefix(pattern, "**/") {
+			normalized = strings.TrimPrefix(pattern, "**/")
+		}
+		if ok, _ := path.Match(normalized, filePath); ok {
+			return true
+		}
+		if strings.HasSuffix(normalized, "/**") && strings.HasPrefix(filePath, strings.TrimSuffix(normalized, "/**")+"/") {
+			return true
+		}
+		if strings.HasPrefix(pattern, "**/") {
+			if ok, _ := path.Match(normalized, path.Base(filePath)); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (e *Engine) indexCleanFiles(pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, taskPaths map[string]bool, dir Direction) error {
@@ -804,7 +1012,13 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 			target = remote
 		}
 		logger.L.Debug().Str("path", task.Path).Str("target", task.DeleteTarget).Str("pair", pair.Name).Msg("deleting")
-		return e.doDelete(ctx, pair, target, task.Path)
+		return e.doDelete(ctx, pair, target, task.DeleteTarget, task.Path)
+	case TaskVirtual:
+		logger.L.Debug().Str("path", task.Path).Str("pair", pair.Name).Msg("virtualizing")
+		return e.doVirtualize(ctx, pair, remote, task.Path)
+	case TaskConflict:
+		logger.L.Debug().Str("path", task.Path).Str("pair", pair.Name).Msg("recording conflict")
+		return e.doRecordConflict(ctx, pair, local, remote, task.Path)
 	default:
 		return fmt.Errorf("unknown task type: %s", task.Type)
 	}
@@ -812,6 +1026,7 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 
 func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, filePath string) error {
 	if meta, err := local.Stat(ctx, filePath); err == nil && e.canResumeTransfer(local, remote, meta.Size) {
+		e.recordProviderVersion(ctx, pair.ID, filePath, "remote", remote)
 		remoteMeta, err := e.doResumableTransfer(ctx, pair, local, remote, filePath, meta, e.config.UploadLimit, TaskUpload)
 		if err != nil {
 			return fmt.Errorf("resumable upload to remote: %w", err)
@@ -827,6 +1042,7 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		}); err != nil {
 			return fmt.Errorf("record upload: %w", err)
 		}
+		_ = e.store.AddSyncStats(meta.Size, 0, 0, 0, 0, 0)
 		logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Bool("resumed", true).Msg("uploaded")
 		return nil
 	}
@@ -843,6 +1059,7 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		remote.CreateDir(ctx, dir)
 	}
 
+	e.recordProviderVersion(ctx, pair.ID, filePath, "remote", remote)
 	if err := remote.PutFile(ctx, filePath, transferReader, meta); err != nil {
 		return fmt.Errorf("upload to remote: %w", err)
 	}
@@ -864,12 +1081,14 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		return fmt.Errorf("record upload: %w", err)
 	}
 
+	_ = e.store.AddSyncStats(meta.Size, 0, 0, 0, 0, 0)
 	logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Msg("uploaded")
 	return nil
 }
 
 func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, filePath string) error {
 	if meta, err := remote.Stat(ctx, filePath); err == nil && e.canResumeTransfer(remote, local, meta.Size) {
+		e.recordProviderVersion(ctx, pair.ID, filePath, "local", local)
 		localMeta, err := e.doResumableTransfer(ctx, pair, remote, local, filePath, meta, e.config.DownloadLimit, TaskDownload)
 		if err != nil {
 			return fmt.Errorf("resumable download to local: %w", err)
@@ -885,6 +1104,7 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		}); err != nil {
 			return fmt.Errorf("record download: %w", err)
 		}
+		_ = e.store.AddSyncStats(0, meta.Size, 0, 0, 0, 0)
 		logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Bool("resumed", true).Msg("downloaded")
 		return nil
 	}
@@ -901,6 +1121,7 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		local.CreateDir(ctx, dir)
 	}
 
+	e.recordProviderVersion(ctx, pair.ID, filePath, "local", local)
 	if err := local.PutFile(ctx, filePath, transferReader, meta); err != nil {
 		return fmt.Errorf("download to local: %w", err)
 	}
@@ -922,6 +1143,7 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		return fmt.Errorf("record download: %w", err)
 	}
 
+	_ = e.store.AddSyncStats(0, meta.Size, 0, 0, 0, 0)
 	logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Msg("downloaded")
 	return nil
 }
@@ -993,7 +1215,8 @@ func (e *Engine) doResumableTransfer(ctx context.Context, pair *store.SyncPair, 
 	return targetMeta, nil
 }
 
-func (e *Engine) doDelete(ctx context.Context, pair *store.SyncPair, target provider.Provider, filePath string) error {
+func (e *Engine) doDelete(ctx context.Context, pair *store.SyncPair, target provider.Provider, source, filePath string) error {
+	e.recordProviderVersion(ctx, pair.ID, filePath, source, target)
 	if err := target.DeleteFile(ctx, filePath); err != nil {
 		if errors.Is(err, provider.ErrNotFound) {
 			logger.L.Debug().Str("path", filePath).Msg("file already deleted")
@@ -1008,8 +1231,79 @@ func (e *Engine) doDelete(ctx context.Context, pair *store.SyncPair, target prov
 		e.store.DeleteFileEntry(entry.ID)
 	}
 
+	_ = e.store.AddSyncStats(0, 0, 1, 0, 0, 0)
 	logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Msg("deleted")
 	return nil
+}
+
+func (e *Engine) doVirtualize(ctx context.Context, pair *store.SyncPair, remote provider.Provider, filePath string) error {
+	meta, err := remote.Stat(ctx, filePath)
+	if err != nil {
+		return fmt.Errorf("stat remote virtual file: %w", err)
+	}
+	if err := e.store.UpsertFileEntry(&store.FileEntry{
+		Path:        filePath,
+		SyncPairID:  pair.ID,
+		RemoteMTime: &meta.ModTime,
+		RemoteSize:  meta.Size,
+		SyncState:   "virtual",
+	}); err != nil {
+		return fmt.Errorf("record virtual file: %w", err)
+	}
+	_ = e.store.AddSyncStats(0, 0, 0, 1, 0, 0)
+	e.broadcast(Event{Type: "file_virtualized", PairID: pair.ID, PairName: pair.Name, Path: filePath, Message: fmt.Sprintf("%d bytes", meta.Size)})
+	return nil
+}
+
+func (e *Engine) doRecordConflict(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, filePath string) error {
+	localMeta, localErr := local.Stat(ctx, filePath)
+	remoteMeta, remoteErr := remote.Stat(ctx, filePath)
+	if localErr != nil || remoteErr != nil {
+		return fmt.Errorf("stat conflict sides: local=%v remote=%v", localErr, remoteErr)
+	}
+	conflict := &store.ConflictRecord{
+		SyncPairID:  pair.ID,
+		Path:        filePath,
+		LocalMTime:  &localMeta.ModTime,
+		RemoteMTime: &remoteMeta.ModTime,
+		LocalSize:   localMeta.Size,
+		RemoteSize:  remoteMeta.Size,
+		Status:      "open",
+		Strategy:    "manual",
+	}
+	if err := e.store.UpsertOpenConflict(conflict); err != nil {
+		return err
+	}
+	_ = e.store.UpsertFileEntry(&store.FileEntry{
+		Path:        filePath,
+		SyncPairID:  pair.ID,
+		LocalMTime:  &localMeta.ModTime,
+		RemoteMTime: &remoteMeta.ModTime,
+		LocalSize:   localMeta.Size,
+		RemoteSize:  remoteMeta.Size,
+		SyncState:   "conflict",
+	})
+	_ = e.store.AddSyncStats(0, 0, 0, 0, 0, 1)
+	e.broadcast(Event{Type: "conflict_detected", PairID: pair.ID, PairName: pair.Name, Path: filePath})
+	return nil
+}
+
+func (e *Engine) recordProviderVersion(ctx context.Context, pairID int64, filePath, source string, p provider.Provider) {
+	if p == nil {
+		return
+	}
+	meta, err := p.Stat(ctx, filePath)
+	if err != nil || meta == nil || meta.IsDir {
+		return
+	}
+	_ = e.store.CreateFileVersion(&store.FileVersion{
+		SyncPairID: pairID,
+		Path:       filePath,
+		Source:     source,
+		Size:       meta.Size,
+		ModTime:    &meta.ModTime,
+		Hash:       meta.Hash,
+	})
 }
 
 func (e *Engine) processResults() {
@@ -1130,12 +1424,80 @@ func (e *Engine) broadcast(event Event) {
 	}
 
 	e.subsMu.Lock()
-	defer e.subsMu.Unlock()
 	for ch := range e.subs {
 		select {
 		case ch <- event:
 		default:
 		}
+	}
+	e.subsMu.Unlock()
+
+	if shouldNotify(event.Type) {
+		go e.notify(event)
+	}
+}
+
+func shouldNotify(eventType string) bool {
+	switch eventType {
+	case "sync_completed", "sync_failed", "task_failed", "conflict_detected", "conflict_resolved", "file_materialized":
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *Engine) notify(event Event) {
+	if e.config.WebhookURL != "" {
+		e.sendWebhook(event)
+	}
+	if e.config.EmailSMTPAddr != "" && e.config.EmailFrom != "" && len(e.config.EmailTo) > 0 {
+		e.sendEmail(event)
+	}
+}
+
+func (e *Engine) sendWebhook(event Event) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, e.config.WebhookURL, bytes.NewReader(payload))
+	if err != nil {
+		logger.L.Warn().Err(err).Msg("create webhook notification")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.L.Warn().Err(err).Msg("send webhook notification")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		logger.L.Warn().Int("status", resp.StatusCode).Msg("webhook notification returned non-success status")
+	}
+}
+
+func (e *Engine) sendEmail(event Event) {
+	host := e.config.EmailSMTPAddr
+	if idx := strings.LastIndex(host, ":"); idx > 0 {
+		host = host[:idx]
+	}
+
+	var auth smtp.Auth
+	if e.config.EmailUsername != "" || e.config.EmailPassword != "" {
+		auth = smtp.PlainAuth("", e.config.EmailUsername, e.config.EmailPassword, host)
+	}
+
+	subject := fmt.Sprintf("EverySync %s", event.Type)
+	body := fmt.Sprintf("type=%s\npair=%s\npath=%s\nmessage=%s\nerror=%s\ntime=%s\n",
+		event.Type, event.PairName, event.Path, event.Message, event.Error, event.Time.Format(time.RFC3339))
+	msg := []byte("To: " + strings.Join(e.config.EmailTo, ", ") + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n\r\n" + body)
+
+	if err := smtp.SendMail(e.config.EmailSMTPAddr, auth, e.config.EmailFrom, e.config.EmailTo, msg); err != nil {
+		logger.L.Warn().Err(err).Msg("send email notification")
 	}
 }
 

@@ -23,6 +23,8 @@ type Handler struct {
 		RefreshPairs() error
 		SyncPair(ctx context.Context, pairID int64, direction string) error
 		SyncAll(ctx context.Context) error
+		MaterializeVirtual(ctx context.Context, pairID int64, path string) error
+		ResolveConflict(ctx context.Context, conflictID int64, strategy string) error
 		Status() syncengine.Status
 		Subscribe(ctx context.Context) <-chan syncengine.Event
 	}
@@ -32,6 +34,8 @@ func New(s *store.Store, e interface {
 	RefreshPairs() error
 	SyncPair(ctx context.Context, pairID int64, direction string) error
 	SyncAll(ctx context.Context) error
+	MaterializeVirtual(ctx context.Context, pairID int64, path string) error
+	ResolveConflict(ctx context.Context, conflictID int64, strategy string) error
 	Status() syncengine.Status
 	Subscribe(ctx context.Context) <-chan syncengine.Event
 }) *Handler {
@@ -133,13 +137,16 @@ func (h *Handler) ListPairs(w http.ResponseWriter, r *http.Request) {
 }
 
 type CreatePairRequest struct {
-	Name       string `json:"name"`
-	LocalPath  string `json:"local_path"`
-	RemotePath string `json:"remote_path"`
-	Provider   string `json:"provider"`
-	Mode       string `json:"mode"`
-	Direction  string `json:"direction"`
-	Schedule   string `json:"schedule"`
+	Name             string `json:"name"`
+	LocalPath        string `json:"local_path"`
+	RemotePath       string `json:"remote_path"`
+	Provider         string `json:"provider"`
+	Mode             string `json:"mode"`
+	Direction        string `json:"direction"`
+	Schedule         string `json:"schedule"`
+	IncludePatterns  string `json:"include_patterns"`
+	ExcludePatterns  string `json:"exclude_patterns"`
+	ConflictStrategy string `json:"conflict_strategy"`
 }
 
 func (h *Handler) CreatePair(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +170,9 @@ func (h *Handler) CreatePair(w http.ResponseWriter, r *http.Request) {
 	if req.Direction == "" {
 		req.Direction = "both"
 	}
+	if req.ConflictStrategy == "" {
+		req.ConflictStrategy = "latest_wins"
+	}
 	dir, err := syncengine.ResolveDirection(req.Direction, "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -171,14 +181,17 @@ func (h *Handler) CreatePair(w http.ResponseWriter, r *http.Request) {
 	req.Direction = string(dir)
 
 	pair := &store.SyncPair{
-		Name:       req.Name,
-		LocalPath:  req.LocalPath,
-		RemotePath: req.RemotePath,
-		Provider:   req.Provider,
-		Mode:       req.Mode,
-		Direction:  req.Direction,
-		Enabled:    false,
-		Schedule:   req.Schedule,
+		Name:             req.Name,
+		LocalPath:        req.LocalPath,
+		RemotePath:       req.RemotePath,
+		Provider:         req.Provider,
+		Mode:             req.Mode,
+		Direction:        req.Direction,
+		Enabled:          false,
+		Schedule:         req.Schedule,
+		IncludePatterns:  req.IncludePatterns,
+		ExcludePatterns:  req.ExcludePatterns,
+		ConflictStrategy: req.ConflictStrategy,
 	}
 
 	if err := h.store.CreateSyncPair(pair); err != nil {
@@ -226,13 +239,43 @@ func (h *Handler) DeletePair(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+type MaterializeRequest struct {
+	Path string `json:"path"`
+}
+
+func (h *Handler) MaterializePairFile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pair id")
+		return
+	}
+	var req MaterializeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	if err := h.engine.MaterializeVirtual(r.Context(), id, req.Path); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	logger.Audit("pair.materialize").Int64("id", id).Str("path", req.Path).Msg("virtual file materialized via API")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "materialized"})
+}
+
 type UpdatePairRequest struct {
-	LocalPath  *string `json:"local_path"`
-	RemotePath *string `json:"remote_path"`
-	Mode       *string `json:"mode"`
-	Direction  *string `json:"direction"`
-	Enabled    *bool   `json:"enabled"`
-	Schedule   *string `json:"schedule"`
+	LocalPath        *string `json:"local_path"`
+	RemotePath       *string `json:"remote_path"`
+	Mode             *string `json:"mode"`
+	Direction        *string `json:"direction"`
+	Enabled          *bool   `json:"enabled"`
+	Schedule         *string `json:"schedule"`
+	IncludePatterns  *string `json:"include_patterns"`
+	ExcludePatterns  *string `json:"exclude_patterns"`
+	ConflictStrategy *string `json:"conflict_strategy"`
 }
 
 func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
@@ -281,6 +324,15 @@ func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
 	if req.Schedule != nil {
 		pair.Schedule = *req.Schedule
 	}
+	if req.IncludePatterns != nil {
+		pair.IncludePatterns = *req.IncludePatterns
+	}
+	if req.ExcludePatterns != nil {
+		pair.ExcludePatterns = *req.ExcludePatterns
+	}
+	if req.ConflictStrategy != nil {
+		pair.ConflictStrategy = *req.ConflictStrategy
+	}
 
 	if err := h.store.UpdateSyncPair(pair); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -296,6 +348,76 @@ func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
 
 	logger.Audit("pair.update").Int64("id", id).Bool("enabled", pair.Enabled).Msg("pair updated via API")
 	writeJSON(w, http.StatusOK, pair)
+}
+
+func (h *Handler) ListConflicts(w http.ResponseWriter, r *http.Request) {
+	var pairID int64
+	if raw := r.URL.Query().Get("pair_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid pair_id")
+			return
+		}
+		pairID = id
+	}
+	status := r.URL.Query().Get("status")
+	conflicts, err := h.store.ListConflicts(pairID, status)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if conflicts == nil {
+		conflicts = []*store.ConflictRecord{}
+	}
+	writeJSON(w, http.StatusOK, conflicts)
+}
+
+type ResolveConflictRequest struct {
+	Strategy string `json:"strategy"`
+}
+
+func (h *Handler) ResolveConflict(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conflict id")
+		return
+	}
+	var req ResolveConflictRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Strategy == "" {
+		req.Strategy = "latest_wins"
+	}
+	if err := h.engine.ResolveConflict(r.Context(), id, req.Strategy); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	logger.Audit("conflict.resolve").Int64("id", id).Str("strategy", req.Strategy).Msg("conflict resolved via API")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "resolved"})
+}
+
+func (h *Handler) ListVersions(w http.ResponseWriter, r *http.Request) {
+	rawPairID := r.URL.Query().Get("pair_id")
+	if rawPairID == "" {
+		writeError(w, http.StatusBadRequest, "pair_id is required")
+		return
+	}
+	pairID, err := strconv.ParseInt(rawPairID, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pair_id")
+		return
+	}
+	versions, err := h.store.ListFileVersions(pairID, r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if versions == nil {
+		versions = []*store.FileVersion{}
+	}
+	writeJSON(w, http.StatusOK, versions)
 }
 
 // --- Providers ---

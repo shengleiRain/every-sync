@@ -40,13 +40,15 @@
 - [x] 日志轮转与审计日志
 - [ ] Docker + docker-compose 部署
 
-### Phase 3 - 高级特性（计划中）
+### Phase 3 - 高级特性（已完成）
 
-- [ ] virtual 模式（按需下载）
-- [ ] selective 模式（过滤规则）
-- [ ] Web UI 冲突处理界面
-- [ ] 多冲突解决策略
-- [ ] 文件版本历史
+- [x] virtual 模式（远端文件先索引为 virtual，通过 CLI/API/Web UI 按需下载）
+- [x] selective 模式（include/exclude 过滤规则）
+- [x] Web UI 冲突处理界面
+- [x] 多冲突解决策略（latest_wins / local_wins / remote_wins / manual / skip）
+- [x] 文件版本历史（覆盖/删除前记录版本元数据）
+- [x] 同步流量/冲突/virtual 统计
+- [x] 通知集成（Webhook / SMTP 邮件，默认关闭）
 
 ### Phase 4 - 生态扩展（计划中）
 
@@ -97,6 +99,15 @@ sync:
 log:
   level: "info"
   format: "console"            # console（人类可读）或 json
+
+notification:
+  webhook_url: ""              # 可选：重要事件以 JSON POST 到 Webhook
+  email:
+    smtp_addr: ""              # 例如 smtp.example.com:587
+    username: ""
+    password: ""
+    from: ""
+    to: []
 
 # 配置 WebDAV 服务器连接
 providers:
@@ -174,7 +185,12 @@ pairs:
     remote_path: "/photos"
     provider: "my-webdav"              # 对应 providers 中的 name
     direction: "both"
-    mode: "mirror"
+    mode: "mirror"                     # mirror/selective/virtual
+    conflict_strategy: "latest_wins"   # latest_wins/local_wins/remote_wins/manual
+    include_patterns: []
+    exclude_patterns:
+      - "*.tmp"
+      - "cache/**"
     enabled: true
 ```
 
@@ -185,7 +201,9 @@ every-sync pair add \
   --local /home/user/photos \
   --remote /photos \
   --provider my-webdav \               # provider 名称
-  --direction both
+  --direction both \
+  --mode selective \
+  --exclude "*.tmp,cache/**"
 ```
 
 ## 使用说明
@@ -250,6 +268,27 @@ every-sync pair add \
   --provider alist \
   --direction both
 
+# selective 模式：只同步命中 include 且未命中 exclude 的文件
+every-sync pair add \
+  --name "文档" \
+  --local /home/user/docs \
+  --remote /docs \
+  --provider alist \
+  --mode selective \
+  --include "*.md,*.pdf" \
+  --exclude "drafts/**,*.tmp"
+
+# virtual 模式：先索引远端文件，随后按需下载单个文件
+every-sync pair add \
+  --name "云端资料" \
+  --local /home/user/cloud \
+  --remote /cloud \
+  --provider alist \
+  --mode virtual \
+  --direction down
+every-sync sync --pair "云端资料"
+every-sync sync --pair "云端资料" --materialize /manuals/readme.pdf
+
 # 添加并立即启用同步（加 --enable 会在创建后自动执行一次同步）
 every-sync pair add \
   --name "我的照片" \
@@ -283,7 +322,10 @@ every-sync pair remove 1
 #   --remote     远程目录路径
 #   --provider   存储后端名称（通过 'every-sync provider list' 查看）
 #   --direction  同步方向（up / down / both）
-#   --mode       同步模式（mirror）
+#   --mode       同步模式（mirror / selective / virtual）
+#   --include    selective include 规则，逗号或换行分隔
+#   --exclude    selective exclude 规则，逗号或换行分隔
+#   --conflict-strategy latest_wins / local_wins / remote_wins / manual
 ```
 
 ### 4. 执行同步
@@ -425,8 +467,10 @@ curl -X POST http://localhost:10086/api/v1/pairs \
     "local_path": "/home/user/documents",
     "remote_path": "/backup/docs",
     "provider": "alist",
-    "mode": "mirror",
-    "direction": "up"
+    "mode": "selective",
+    "direction": "up",
+    "exclude_patterns": "*.tmp,cache/**",
+    "conflict_strategy": "manual"
   }'
 ```
 
@@ -450,6 +494,24 @@ PUT /api/v1/pairs/{id}
 curl -X PUT http://localhost:10086/api/v1/pairs/1 \
   -H 'Content-Type: application/json' \
   -d '{"direction": "both", "enabled": true}'
+```
+
+#### Phase 3 接口
+
+```bash
+# 按需下载 virtual 文件
+curl -X POST http://localhost:10086/api/v1/pairs/1/materialize \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"/manuals/readme.pdf"}'
+
+# 查询/解决冲突
+curl 'http://localhost:10086/api/v1/conflicts?pair_id=1&status=open'
+curl -X POST http://localhost:10086/api/v1/conflicts/1/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{"strategy":"remote_wins"}'
+
+# 查询文件版本历史
+curl 'http://localhost:10086/api/v1/versions?pair_id=1&path=/docs/a.md'
 ```
 
 #### 删除同步对

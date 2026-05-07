@@ -21,7 +21,7 @@ func TestStore_Migration(t *testing.T) {
 	s := openTestStore(t)
 
 	// Verify tables exist
-	tables := []string{"file_entries", "sync_pairs", "change_events", "schema_migrations"}
+	tables := []string{"file_entries", "sync_pairs", "change_events", "schema_migrations", "providers", "file_versions", "conflicts", "sync_stats"}
 	for _, table := range tables {
 		var count int
 		err := s.DB().QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
@@ -125,15 +125,15 @@ func TestStore_FileEntryCRUD(t *testing.T) {
 
 	// Upsert (create)
 	entry := &FileEntry{
-		Path:       "/test.txt",
-		SyncPairID: pair.ID,
-		LocalHash:  "abc123",
-		RemoteHash: "abc123",
-		LocalMTime: &now,
+		Path:        "/test.txt",
+		SyncPairID:  pair.ID,
+		LocalHash:   "abc123",
+		RemoteHash:  "abc123",
+		LocalMTime:  &now,
 		RemoteMTime: &now,
-		LocalSize:  100,
-		RemoteSize: 100,
-		SyncState:  "synced",
+		LocalSize:   100,
+		RemoteSize:  100,
+		SyncState:   "synced",
 	}
 	if err := s.UpsertFileEntry(entry); err != nil {
 		t.Fatalf("Upsert create: %v", err)

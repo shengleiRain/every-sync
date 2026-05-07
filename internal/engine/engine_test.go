@@ -334,3 +334,143 @@ func TestGenerateTasksSkipsUnchangedFileWithDifferentSideMtimes(t *testing.T) {
 		t.Fatalf("tasks = %+v, want none", tasks)
 	}
 }
+
+func TestEngineSelectiveModeSkipsExcludedFiles(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "keep.txt", "keep")
+	writeTestFile(t, localDir, "skip.tmp", "skip")
+
+	pair := &store.SyncPair{
+		Name:            "selective",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "selective",
+		Direction:       "up",
+		Enabled:         true,
+		ExcludePatterns: "*.tmp",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "keep.txt", "keep")
+	assertMissing(t, remoteDir, "skip.tmp")
+}
+
+func TestEngineVirtualModeIndexesThenMaterializesRemoteFile(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, remoteDir, "remote.txt", "remote")
+
+	pair := &store.SyncPair{Name: "virtual", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "virtual", Direction: "down", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	assertMissing(t, localDir, "remote.txt")
+	entry, err := s.GetFileEntry(pair.ID, "/remote.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get virtual entry: %v", err)
+	}
+	if entry.SyncState != "virtual" {
+		t.Fatalf("sync state = %q, want virtual", entry.SyncState)
+	}
+
+	if err := eng.MaterializeVirtual(context.Background(), pair.ID, "/remote.txt"); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	assertFileContent(t, localDir, "remote.txt", "remote")
+	entry, err = s.GetFileEntry(pair.ID, "/remote.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get materialized entry: %v", err)
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("sync state = %q, want synced", entry.SyncState)
+	}
+}
+
+func TestEngineManualConflictCanResolveRemoteWins(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "same.txt", "local")
+	writeTestFile(t, remoteDir, "same.txt", "remote")
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(localDir, "same.txt"), now, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("chtimes local: %v", err)
+	}
+	if err := os.Chtimes(filepath.Join(remoteDir, "same.txt"), now, now.Add(1*time.Second)); err != nil {
+		t.Fatalf("chtimes remote: %v", err)
+	}
+
+	pair := &store.SyncPair{Name: "manual-conflict", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "both", Enabled: true, ConflictStrategy: "manual"}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, localDir, "same.txt", "local")
+	assertFileContent(t, remoteDir, "same.txt", "remote")
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("conflicts = %d, want 1", len(conflicts))
+	}
+
+	if err := eng.ResolveConflict(context.Background(), conflicts[0].ID, "remote_wins"); err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+	assertFileContent(t, localDir, "same.txt", "remote")
+	conflicts, err = s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts after resolve: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("open conflicts = %d, want 0", len(conflicts))
+	}
+}
+
+func TestEngineRecordsVersionBeforeOverwrite(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "doc.txt", "new-file")
+	writeTestFile(t, remoteDir, "doc.txt", "old")
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(localDir, "doc.txt"), now, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("chtimes local: %v", err)
+	}
+	if err := os.Chtimes(filepath.Join(remoteDir, "doc.txt"), now, now.Add(1*time.Second)); err != nil {
+		t.Fatalf("chtimes remote: %v", err)
+	}
+
+	pair := &store.SyncPair{Name: "versions", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "up", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "doc.txt", "new-file")
+	versions, err := s.ListFileVersions(pair.ID, "/doc.txt")
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("versions = %d, want 1", len(versions))
+	}
+	if versions[0].Source != "remote" || versions[0].Size != int64(len("old")) {
+		t.Fatalf("version = source %q size %d, want remote/%d", versions[0].Source, versions[0].Size, len("old"))
+	}
+}

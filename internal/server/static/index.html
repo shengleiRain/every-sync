@@ -119,6 +119,8 @@
       <button data-tab="dashboard" class="active">仪表盘</button>
       <button data-tab="pairs">同步对</button>
       <button data-tab="providers">存储后端</button>
+      <button data-tab="conflicts">冲突</button>
+      <button data-tab="versions">版本</button>
       <button data-tab="events">事件</button>
       <button data-tab="settings">设置</button>
     </nav>
@@ -148,7 +150,10 @@
         <label>本地路径<input name="local_path" required></label>
         <label>远程路径<input name="remote_path" required></label>
         <label>方向<select name="direction"><option>both</option><option>up</option><option>down</option></select></label>
-        <label>模式<select name="mode"><option>mirror</option></select></label>
+        <label>模式<select name="mode"><option>mirror</option><option>selective</option><option>virtual</option></select></label>
+        <label>冲突策略<select name="conflict_strategy"><option>latest_wins</option><option>manual</option><option>local_wins</option><option>remote_wins</option></select></label>
+        <label>Include 规则<input name="include_patterns" placeholder="*.md, docs/**"></label>
+        <label class="full">Exclude 规则<input name="exclude_patterns" placeholder="*.tmp, cache/**"></label>
         <div class="actions full"><button class="primary" type="submit">创建同步对</button></div>
       </form>
       <div class="toolbar"><h2>列表</h2><button id="reload-pairs">刷新</button></div>
@@ -173,6 +178,28 @@
       <div id="providers-table"></div>
     </section>
 
+    <section id="conflicts" class="hidden">
+      <div class="toolbar">
+        <h2>冲突处理</h2>
+        <button id="reload-conflicts">刷新</button>
+      </div>
+      <div id="conflicts-table"></div>
+    </section>
+
+    <section id="versions" class="hidden">
+      <div class="toolbar">
+        <h2>文件版本</h2>
+        <button id="reload-versions">刷新</button>
+      </div>
+      <form id="version-filter" class="panel">
+        <label>同步对<select name="pair_id" id="version-pair"></select></label>
+        <label>路径<input name="path" placeholder="/path/to/file"></label>
+        <div class="actions full"><button class="primary" type="submit">查询</button></div>
+      </form>
+      <div class="toolbar"><h2>列表</h2></div>
+      <div id="versions-table"></div>
+    </section>
+
     <section id="events" class="hidden">
       <div class="toolbar">
         <h2>实时事件</h2>
@@ -188,7 +215,7 @@
   </main>
 
   <script>
-    const state = { status: null, pairs: [], providers: [] };
+    const state = { status: null, pairs: [], providers: [], conflicts: [], versions: [] };
     const $ = (id) => document.getElementById(id);
 
     async function api(path, options = {}) {
@@ -217,6 +244,7 @@
         <p><strong>扫描间隔：</strong>${escapeHtml(s.scan_interval || '-')}</p>
         <p><strong>上传限速：</strong>${s.upload_limit || 0} B/s | <strong>下载限速：</strong>${s.download_limit || 0} B/s</p>
         <p><strong>分块：</strong>${s.chunk_size || 0} B | <strong>阈值：</strong>${s.chunk_threshold || 0} B</p>
+        <p><strong>流量：</strong>上传 ${(s.stats || {}).uploaded_bytes || 0} B | 下载 ${(s.stats || {}).downloaded_bytes || 0} B | <strong>virtual：</strong>${(s.stats || {}).virtual_files || 0} | <strong>冲突：</strong>${(s.stats || {}).conflicts || 0}</p>
       `;
       $('settings-view').innerHTML = $('status-detail').innerHTML;
     }
@@ -225,16 +253,18 @@
       const rows = state.pairs.map((p) => `
         <tr>
           <td>${p.id}</td><td>${escapeHtml(p.name)}</td><td>${p.enabled ? 'enabled' : 'disabled'}</td>
-          <td>${escapeHtml(p.direction)}</td><td>${escapeHtml(p.provider)}</td>
+          <td>${escapeHtml(p.mode || 'mirror')}</td><td>${escapeHtml(p.direction)}</td><td>${escapeHtml(p.conflict_strategy || 'latest_wins')}</td><td>${escapeHtml(p.provider)}</td>
           <td>${p.resumable_upload ? '上传/续传' : '上传/重试'} · ${p.resumable_download ? '下载/续传' : '下载/重试'}</td>
           <td>${escapeHtml(p.local_path)}</td><td>${escapeHtml(p.remote_path)}</td>
           <td><div class="actions">
             <button data-sync="${p.id}">同步</button>
+            <button data-materialize="${p.id}">按需下载</button>
             <button data-toggle="${p.id}" data-enabled="${p.enabled}">${p.enabled ? '禁用' : '启用'}</button>
             <button data-delete-pair="${p.id}">删除</button>
           </div></td>
         </tr>`).join('');
-      $('pairs-table').innerHTML = `<table><thead><tr><th>ID</th><th>名称</th><th>状态</th><th>方向</th><th>Provider</th><th>续传能力</th><th>本地</th><th>远程</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="9" class="muted">暂无同步对</td></tr>'}</tbody></table>`;
+      $('pairs-table').innerHTML = `<table><thead><tr><th>ID</th><th>名称</th><th>状态</th><th>模式</th><th>方向</th><th>冲突</th><th>Provider</th><th>续传能力</th><th>本地</th><th>远程</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="11" class="muted">暂无同步对</td></tr>'}</tbody></table>`;
+      $('version-pair').innerHTML = state.pairs.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     }
 
     function renderProviders() {
@@ -247,18 +277,47 @@
       $('providers-table').innerHTML = `<table><thead><tr><th>ID</th><th>名称</th><th>类型</th><th>Endpoint</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="muted">暂无存储后端</td></tr>'}</tbody></table>`;
     }
 
+    function renderConflicts() {
+      const rows = state.conflicts.map((c) => `
+        <tr>
+          <td>${c.id}</td><td>${c.sync_pair_id}</td><td>${escapeHtml(c.path)}</td><td>${escapeHtml(c.status)}</td>
+          <td>${c.local_size} / ${c.remote_size}</td>
+          <td>${escapeHtml(c.local_mtime || '-')}<br>${escapeHtml(c.remote_mtime || '-')}</td>
+          <td><div class="actions">
+            <button data-resolve-conflict="${c.id}" data-strategy="local_wins">本地覆盖</button>
+            <button data-resolve-conflict="${c.id}" data-strategy="remote_wins">远端覆盖</button>
+            <button data-resolve-conflict="${c.id}" data-strategy="latest_wins">最新覆盖</button>
+            <button data-resolve-conflict="${c.id}" data-strategy="skip">跳过</button>
+          </div></td>
+        </tr>`).join('');
+      $('conflicts-table').innerHTML = `<table><thead><tr><th>ID</th><th>同步对</th><th>路径</th><th>状态</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="muted">暂无冲突</td></tr>'}</tbody></table>`;
+    }
+
+    function renderVersions() {
+      const rows = state.versions.map((v) => `
+        <tr>
+          <td>${v.id}</td><td>${v.sync_pair_id}</td><td>${escapeHtml(v.path)}</td><td>${escapeHtml(v.source)}</td>
+          <td>${v.size}</td><td>${escapeHtml(v.mod_time || '-')}</td><td>${escapeHtml(v.created_at || '-')}</td>
+        </tr>`).join('');
+      $('versions-table').innerHTML = `<table><thead><tr><th>ID</th><th>同步对</th><th>路径</th><th>来源</th><th>大小</th><th>文件时间</th><th>记录时间</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="muted">暂无版本记录</td></tr>'}</tbody></table>`;
+    }
+
     async function loadAll() {
-      const [status, pairs, providers] = await Promise.all([
+      const [status, pairs, providers, conflicts] = await Promise.all([
         api('/api/v1/status'),
         api('/api/v1/pairs'),
-        api('/api/v1/providers')
+        api('/api/v1/providers'),
+        api('/api/v1/conflicts?status=open')
       ]);
       state.status = status;
       state.pairs = pairs;
       state.providers = providers;
+      state.conflicts = conflicts;
       renderStatus();
       renderPairs();
       renderProviders();
+      renderConflicts();
+      renderVersions();
     }
 
     function connectEvents() {
@@ -286,11 +345,17 @@
     document.body.addEventListener('click', async (event) => {
       const el = event.target;
       if (el.id === 'sync-all') await api('/api/v1/sync', { method: 'POST', body: '{}' });
-      if (el.id === 'reload-pairs' || el.id === 'reload-providers') await loadAll();
+      if (el.id === 'reload-pairs' || el.id === 'reload-providers' || el.id === 'reload-conflicts') await loadAll();
+      if (el.id === 'reload-versions') await loadVersions();
       if (el.dataset.sync) await api('/api/v1/sync', { method: 'POST', body: JSON.stringify({ pair_id: Number(el.dataset.sync) }) });
+      if (el.dataset.materialize) {
+        const filePath = prompt('路径');
+        if (filePath) await api(`/api/v1/pairs/${el.dataset.materialize}/materialize`, { method: 'POST', body: JSON.stringify({ path: filePath }) });
+      }
       if (el.dataset.toggle) await api(`/api/v1/pairs/${el.dataset.toggle}`, { method: 'PUT', body: JSON.stringify({ enabled: el.dataset.enabled !== 'true' }) });
       if (el.dataset.deletePair) await api(`/api/v1/pairs/${el.dataset.deletePair}`, { method: 'DELETE' });
       if (el.dataset.deleteProvider) await api(`/api/v1/providers/${el.dataset.deleteProvider}`, { method: 'DELETE' });
+      if (el.dataset.resolveConflict) await api(`/api/v1/conflicts/${el.dataset.resolveConflict}/resolve`, { method: 'POST', body: JSON.stringify({ strategy: el.dataset.strategy }) });
       await loadAll();
     });
 
@@ -308,6 +373,19 @@
       data.params = JSON.parse(data.params || '{}');
       await api('/api/v1/providers', { method: 'POST', body: JSON.stringify(data) });
       await loadAll();
+    });
+
+    async function loadVersions() {
+      const data = Object.fromEntries(new FormData($('version-filter')).entries());
+      if (!data.pair_id) return;
+      const query = new URLSearchParams(data);
+      state.versions = await api(`/api/v1/versions?${query.toString()}`);
+      renderVersions();
+    }
+
+    $('version-filter').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await loadVersions();
     });
 
     loadAll().catch((err) => { $('status-detail').innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`; });

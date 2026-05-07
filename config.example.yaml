@@ -25,6 +25,15 @@ log:
   format: "console"           # console/json
   path: "~/.every-sync/logs"
 
+notification:
+  webhook_url: ""             # optional: POST important events as JSON
+  email:
+    smtp_addr: ""             # example: "smtp.example.com:587"
+    username: ""
+    password: ""
+    from: ""
+    to: []
+
 # Storage providers
 providers:
   - name: "my-webdav"
@@ -42,6 +51,11 @@ pairs:
     provider: "webdav"
     mode: "mirror"             # mirror/selective/virtual
     direction: "both"          # up/down/both
+    conflict_strategy: "latest_wins"  # latest_wins/local_wins/remote_wins/manual
+    include_patterns: []
+    exclude_patterns:
+      - "*.tmp"
+      - ".cache/**"
     enabled: true
     schedule: ""               # empty = realtime
 
@@ -51,4 +65,14 @@ pairs:
     provider: "webdav"
     mode: "mirror"
     direction: "up"            # upload only
+    conflict_strategy: "latest_wins"
     enabled: true
+
+  - name: "cloud-virtual"
+    local_path: "/home/user/cloud"
+    remote_path: "/cloud"
+    provider: "webdav"
+    mode: "virtual"            # index remote files first; materialize on demand
+    direction: "down"
+    conflict_strategy: "manual"
+    enabled: false

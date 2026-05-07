@@ -113,20 +113,26 @@ func cmdServe(args []string) {
 		existing, _ := s.GetSyncPairByName(pairConf.Name)
 		if existing == nil {
 			pair := &store.SyncPair{
-				Name:       pairConf.Name,
-				LocalPath:  pairConf.LocalPath,
-				RemotePath: pairConf.RemotePath,
-				Provider:   pairConf.Provider,
-				Mode:       pairConf.Mode,
-				Direction:  pairConf.Direction,
-				Enabled:    pairConf.Enabled,
-				Schedule:   pairConf.Schedule,
+				Name:             pairConf.Name,
+				LocalPath:        pairConf.LocalPath,
+				RemotePath:       pairConf.RemotePath,
+				Provider:         pairConf.Provider,
+				Mode:             pairConf.Mode,
+				Direction:        pairConf.Direction,
+				Enabled:          pairConf.Enabled,
+				Schedule:         pairConf.Schedule,
+				IncludePatterns:  strings.Join(pairConf.IncludePatterns, "\n"),
+				ExcludePatterns:  strings.Join(pairConf.ExcludePatterns, "\n"),
+				ConflictStrategy: pairConf.ConflictStrategy,
 			}
 			if pair.Direction == "" {
 				pair.Direction = "both"
 			}
 			if pair.Mode == "" {
 				pair.Mode = "mirror"
+			}
+			if pair.ConflictStrategy == "" {
+				pair.ConflictStrategy = "latest_wins"
 			}
 			s.CreateSyncPair(pair)
 		}
@@ -166,6 +172,7 @@ func cmdSync(args []string) {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	pairName := fs.String("pair", "", "sync pair name (empty = all)")
 	direction := fs.String("direction", "", "sync direction: up/down/both")
+	materialize := fs.String("materialize", "", "virtual file path to download on demand")
 	dryRun := fs.Bool("dry-run", false, "preview mode")
 	fs.Parse(args)
 
@@ -200,6 +207,9 @@ func cmdSync(args []string) {
 			}
 		}
 	}
+	if *materialize != "" && selectedPair == nil {
+		logger.L.Fatal().Msg("--materialize requires --pair")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -212,6 +222,15 @@ func cmdSync(args []string) {
 		dir := *direction
 		if dir == "" {
 			dir = selectedPair.Direction
+		}
+		if *materialize != "" {
+			logger.L.Info().Str("pair", selectedPair.Name).Str("path", *materialize).Msg("materializing virtual file")
+			if err := eng.MaterializeVirtual(ctx, selectedPair.ID, *materialize); err != nil {
+				logger.L.Fatal().Err(err).Msg("materialize error")
+			}
+			eng.Stop()
+			logger.L.Info().Msg("materialize complete")
+			return
 		}
 		logger.L.Info().Str("pair", selectedPair.Name).Str("direction", dir).Msg("syncing pair")
 		if err := eng.SyncPair(ctx, selectedPair.ID, dir); err != nil {
@@ -236,7 +255,7 @@ func cmdPair(args []string) {
 	if len(args) < 1 {
 		fmt.Println(`Usage:
   every-sync pair list
-  every-sync pair add    --name <name> --local <path> --remote <path> --provider <name> [--direction both]
+  every-sync pair add    --name <name> --local <path> --remote <path> --provider <name> [--direction both] [--mode mirror]
   every-sync pair remove <name|id>
   every-sync pair enable <name|id>
   every-sync pair disable <name|id>`)
@@ -263,15 +282,15 @@ func cmdPair(args []string) {
 			fmt.Println("No sync pairs configured")
 			return
 		}
-		fmt.Printf("%-4s %-20s %-10s %-6s %-10s %s -> %s\n", "ID", "Name", "Status", "Dir", "Provider", "Local", "Remote")
-		fmt.Printf("%-4s %-20s %-10s %-6s %-10s %s -> %s\n", "--", "----", "------", "---", "--------", "-----", "------")
+		fmt.Printf("%-4s %-20s %-10s %-9s %-6s %-12s %-10s %s -> %s\n", "ID", "Name", "Status", "Mode", "Dir", "Conflict", "Provider", "Local", "Remote")
+		fmt.Printf("%-4s %-20s %-10s %-9s %-6s %-12s %-10s %s -> %s\n", "--", "----", "------", "----", "---", "--------", "--------", "-----", "------")
 		for _, p := range pairs {
 			status := "enabled"
 			if !p.Enabled {
 				status = "disabled"
 			}
-			fmt.Printf("%-4d %-20s %-10s %-6s %-10s %s -> %s\n",
-				p.ID, p.Name, status, p.Direction, p.Provider, p.LocalPath, p.RemotePath)
+			fmt.Printf("%-4d %-20s %-10s %-9s %-6s %-12s %-10s %s -> %s\n",
+				p.ID, p.Name, status, p.Mode, p.Direction, p.ConflictStrategy, p.Provider, p.LocalPath, p.RemotePath)
 		}
 
 	case "add":
@@ -282,6 +301,9 @@ func cmdPair(args []string) {
 		prov := fs.String("provider", "", "provider name (use 'every-sync provider list' to see)")
 		mode := fs.String("mode", "mirror", "sync mode")
 		direction := fs.String("direction", "both", "sync direction")
+		include := fs.String("include", "", "selective include patterns, comma or newline separated")
+		exclude := fs.String("exclude", "", "selective exclude patterns, comma or newline separated")
+		conflictStrategy := fs.String("conflict-strategy", "latest_wins", "conflict strategy: latest_wins/local_wins/remote_wins/manual")
 		enable := fs.Bool("enable", false, "enable immediately and sync")
 		fs.Parse(args[1:])
 
@@ -296,13 +318,16 @@ func cmdPair(args []string) {
 		}
 
 		pair := &store.SyncPair{
-			Name:       *name,
-			LocalPath:  *localPath,
-			RemotePath: *remotePath,
-			Provider:   *prov,
-			Mode:       *mode,
-			Direction:  string(dir),
-			Enabled:    *enable,
+			Name:             *name,
+			LocalPath:        *localPath,
+			RemotePath:       *remotePath,
+			Provider:         *prov,
+			Mode:             *mode,
+			Direction:        string(dir),
+			Enabled:          *enable,
+			IncludePatterns:  *include,
+			ExcludePatterns:  *exclude,
+			ConflictStrategy: *conflictStrategy,
 		}
 		if err := s.CreateSyncPair(pair); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -589,10 +614,15 @@ func cmdStatus(args []string) {
 	}
 
 	provConfigs, _ := s.ListProviderConfigs()
+	stats, _ := s.GetSyncStats()
 
 	fmt.Printf("EverySync Status\n")
 	fmt.Printf("================\n")
 	fmt.Printf("Sync pairs: %d | Providers: %d\n\n", len(pairs), len(provConfigs))
+	if stats != nil {
+		fmt.Printf("Traffic: uploaded %d B | downloaded %d B | deleted %d | virtual %d | materialized %d | conflicts %d\n\n",
+			stats.UploadedBytes, stats.DownloadedBytes, stats.DeletedFiles, stats.VirtualFiles, stats.MaterializedFiles, stats.Conflicts)
+	}
 
 	for _, p := range pairs {
 		status := "enabled"
@@ -644,6 +674,12 @@ func engineConfigFromAppConfig(cfg *config.Config, dryRun bool) engine.Config {
 		DownloadLimit:   downloadLimit,
 		ChunkSize:       chunkSize,
 		ChunkThreshold:  chunkThreshold,
+		WebhookURL:      cfg.Notification.WebhookURL,
+		EmailSMTPAddr:   cfg.Notification.Email.SMTPAddr,
+		EmailUsername:   cfg.Notification.Email.Username,
+		EmailPassword:   cfg.Notification.Email.Password,
+		EmailFrom:       cfg.Notification.Email.From,
+		EmailTo:         cfg.Notification.Email.To,
 		DryRun:          dryRun,
 	}
 }
