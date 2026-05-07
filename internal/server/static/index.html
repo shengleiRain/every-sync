@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EverySync</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #657282;
+      --line: #d9dee7;
+      --blue: #1f6feb;
+      --green: #1f8f55;
+      --red: #c9352b;
+      --amber: #946200;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    h1 { font-size: 18px; margin: 0; letter-spacing: 0; }
+    main { max-width: 1180px; margin: 0 auto; padding: 20px; }
+    nav { display: flex; gap: 4px; }
+    nav button, .button, button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+    }
+    nav button.active, .button.primary, button.primary {
+      background: var(--blue);
+      color: #fff;
+      border-color: var(--blue);
+    }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .metric { display: grid; gap: 6px; }
+    .metric span { color: var(--muted); font-size: 13px; }
+    .metric strong { font-size: 24px; font-weight: 650; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 10px; }
+    .toolbar h2 { margin: 0; font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
+    th { color: var(--muted); font-weight: 600; background: #fbfcfd; }
+    tr:last-child td { border-bottom: 0; }
+    .status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); display: inline-block; }
+    .dot.on { background: var(--green); }
+    .muted { color: var(--muted); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    label { display: grid; gap: 5px; font-size: 13px; color: var(--muted); }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      min-height: 36px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+    textarea { min-height: 86px; grid-column: 1 / -1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .full { grid-column: 1 / -1; }
+    .log {
+      height: 360px;
+      overflow: auto;
+      background: #111827;
+      color: #dbe4ee;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .hidden { display: none; }
+    .error { color: var(--red); }
+    .ok { color: var(--green); }
+    @media (max-width: 800px) {
+      header { height: auto; align-items: flex-start; gap: 12px; padding: 12px; flex-direction: column; }
+      nav { flex-wrap: wrap; }
+      main { padding: 12px; }
+      .grid, form { grid-template-columns: 1fr; }
+      .toolbar { align-items: flex-start; flex-direction: column; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>EverySync</h1>
+    <nav>
+      <button data-tab="dashboard" class="active">仪表盘</button>
+      <button data-tab="pairs">同步对</button>
+      <button data-tab="providers">存储后端</button>
+      <button data-tab="events">事件</button>
+      <button data-tab="settings">设置</button>
+    </nav>
+  </header>
+  <main>
+    <section id="dashboard">
+      <div class="grid">
+        <div class="panel metric"><span>引擎状态</span><strong id="metric-running">-</strong></div>
+        <div class="panel metric"><span>同步对</span><strong id="metric-pairs">0</strong></div>
+        <div class="panel metric"><span>待处理任务</span><strong id="metric-pending">0</strong></div>
+        <div class="panel metric"><span>Worker</span><strong id="metric-workers">0</strong></div>
+      </div>
+      <div class="toolbar">
+        <h2>运行概览</h2>
+        <button class="primary" id="sync-all">立即同步全部</button>
+      </div>
+      <div class="panel" id="status-detail"></div>
+    </section>
+
+    <section id="pairs" class="hidden">
+      <div class="toolbar">
+        <h2>同步对</h2>
+      </div>
+      <form id="pair-form" class="panel">
+        <label>名称<input name="name" required></label>
+        <label>Provider 名称<input name="provider" required placeholder="local 或已配置名称"></label>
+        <label>本地路径<input name="local_path" required></label>
+        <label>远程路径<input name="remote_path" required></label>
+        <label>方向<select name="direction"><option>both</option><option>up</option><option>down</option></select></label>
+        <label>模式<select name="mode"><option>mirror</option></select></label>
+        <div class="actions full"><button class="primary" type="submit">创建同步对</button></div>
+      </form>
+      <div class="toolbar"><h2>列表</h2><button id="reload-pairs">刷新</button></div>
+      <div id="pairs-table"></div>
+    </section>
+
+    <section id="providers" class="hidden">
+      <div class="toolbar">
+        <h2>存储后端</h2>
+      </div>
+      <form id="provider-form" class="panel">
+        <label>名称<input name="name" required></label>
+        <label>类型<select name="type"><option>webdav</option><option>local</option></select></label>
+        <textarea name="params" spellcheck="false">{
+  "endpoint": "http://localhost:5244/dav",
+  "username": "",
+  "password": ""
+}</textarea>
+        <div class="actions full"><button class="primary" type="submit">创建存储后端</button></div>
+      </form>
+      <div class="toolbar"><h2>列表</h2><button id="reload-providers">刷新</button></div>
+      <div id="providers-table"></div>
+    </section>
+
+    <section id="events" class="hidden">
+      <div class="toolbar">
+        <h2>实时事件</h2>
+        <span class="status"><span id="ws-dot" class="dot"></span><span id="ws-state">未连接</span></span>
+      </div>
+      <div class="log" id="event-log"></div>
+    </section>
+
+    <section id="settings" class="hidden">
+      <div class="toolbar"><h2>当前设置</h2></div>
+      <div class="panel" id="settings-view"></div>
+    </section>
+  </main>
+
+  <script>
+    const state = { status: null, pairs: [], providers: [] };
+    const $ = (id) => document.getElementById(id);
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function renderStatus() {
+      const s = state.status || {};
+      $('metric-running').textContent = s.running ? '运行中' : '已停止';
+      $('metric-running').className = s.running ? 'ok' : 'error';
+      $('metric-pairs').textContent = s.registered_pairs || 0;
+      $('metric-pending').textContent = s.pending || 0;
+      $('metric-workers').textContent = s.max_workers || 0;
+      $('status-detail').innerHTML = `
+        <p><strong>启动时间：</strong>${escapeHtml(s.started_at || '-')}</p>
+        <p><strong>扫描间隔：</strong>${escapeHtml(s.scan_interval || '-')}</p>
+        <p><strong>上传限速：</strong>${s.upload_limit || 0} B/s | <strong>下载限速：</strong>${s.download_limit || 0} B/s</p>
+        <p><strong>分块：</strong>${s.chunk_size || 0} B | <strong>阈值：</strong>${s.chunk_threshold || 0} B</p>
+      `;
+      $('settings-view').innerHTML = $('status-detail').innerHTML;
+    }
+
+    function renderPairs() {
+      const rows = state.pairs.map((p) => `
+        <tr>
+          <td>${p.id}</td><td>${escapeHtml(p.name)}</td><td>${p.enabled ? 'enabled' : 'disabled'}</td>
+          <td>${escapeHtml(p.direction)}</td><td>${escapeHtml(p.provider)}</td>
+          <td>${escapeHtml(p.local_path)}</td><td>${escapeHtml(p.remote_path)}</td>
+          <td><div class="actions">
+            <button data-sync="${p.id}">同步</button>
+            <button data-toggle="${p.id}" data-enabled="${p.enabled}">${p.enabled ? '禁用' : '启用'}</button>
+            <button data-delete-pair="${p.id}">删除</button>
+          </div></td>
+        </tr>`).join('');
+      $('pairs-table').innerHTML = `<table><thead><tr><th>ID</th><th>名称</th><th>状态</th><th>方向</th><th>Provider</th><th>本地</th><th>远程</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="muted">暂无同步对</td></tr>'}</tbody></table>`;
+    }
+
+    function renderProviders() {
+      const rows = state.providers.map((p) => `
+        <tr>
+          <td>${p.id}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.type)}</td>
+          <td>${escapeHtml((p.params || {}).endpoint || '-')}</td>
+          <td><button data-delete-provider="${p.id}">删除</button></td>
+        </tr>`).join('');
+      $('providers-table').innerHTML = `<table><thead><tr><th>ID</th><th>名称</th><th>类型</th><th>Endpoint</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="muted">暂无存储后端</td></tr>'}</tbody></table>`;
+    }
+
+    async function loadAll() {
+      const [status, pairs, providers] = await Promise.all([
+        api('/api/v1/status'),
+        api('/api/v1/pairs'),
+        api('/api/v1/providers')
+      ]);
+      state.status = status;
+      state.pairs = pairs;
+      state.providers = providers;
+      renderStatus();
+      renderPairs();
+      renderProviders();
+    }
+
+    function connectEvents() {
+      const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${scheme}://${location.host}/api/v1/events`);
+      ws.onopen = () => { $('ws-dot').classList.add('on'); $('ws-state').textContent = '已连接'; };
+      ws.onclose = () => { $('ws-dot').classList.remove('on'); $('ws-state').textContent = '已断开，重连中'; setTimeout(connectEvents, 1500); };
+      ws.onmessage = (msg) => {
+        const log = $('event-log');
+        const line = document.createElement('div');
+        line.textContent = msg.data;
+        log.prepend(line);
+        loadAll().catch(() => {});
+      };
+    }
+
+    document.querySelector('nav').addEventListener('click', (event) => {
+      if (event.target.tagName !== 'BUTTON') return;
+      document.querySelectorAll('nav button').forEach((b) => b.classList.remove('active'));
+      event.target.classList.add('active');
+      document.querySelectorAll('main > section').forEach((section) => section.classList.add('hidden'));
+      $(event.target.dataset.tab).classList.remove('hidden');
+    });
+
+    document.body.addEventListener('click', async (event) => {
+      const el = event.target;
+      if (el.id === 'sync-all') await api('/api/v1/sync', { method: 'POST', body: '{}' });
+      if (el.id === 'reload-pairs' || el.id === 'reload-providers') await loadAll();
+      if (el.dataset.sync) await api('/api/v1/sync', { method: 'POST', body: JSON.stringify({ pair_id: Number(el.dataset.sync) }) });
+      if (el.dataset.toggle) await api(`/api/v1/pairs/${el.dataset.toggle}`, { method: 'PUT', body: JSON.stringify({ enabled: el.dataset.enabled !== 'true' }) });
+      if (el.dataset.deletePair) await api(`/api/v1/pairs/${el.dataset.deletePair}`, { method: 'DELETE' });
+      if (el.dataset.deleteProvider) await api(`/api/v1/providers/${el.dataset.deleteProvider}`, { method: 'DELETE' });
+      await loadAll();
+    });
+
+    $('pair-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(event.target).entries());
+      await api('/api/v1/pairs', { method: 'POST', body: JSON.stringify(data) });
+      event.target.reset();
+      await loadAll();
+    });
+
+    $('provider-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(event.target).entries());
+      data.params = JSON.parse(data.params || '{}');
+      await api('/api/v1/providers', { method: 'POST', body: JSON.stringify(data) });
+      await loadAll();
+    });
+
+    loadAll().catch((err) => { $('status-detail').innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`; });
+    connectEvents();
+    setInterval(() => loadAll().catch(() => {}), 5000);
+  </script>
+</body>
+</html>

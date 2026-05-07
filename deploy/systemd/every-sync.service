@@ -1,0 +1,24 @@
+[Unit]
+Description=EverySync file synchronization service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=every-sync
+Group=every-sync
+ExecStart=/usr/local/bin/every-sync serve --config /etc/every-sync/config.yaml --data-dir /var/lib/every-sync
+Restart=on-failure
+RestartSec=5s
+WorkingDirectory=/var/lib/every-sync
+StateDirectory=every-sync
+ConfigurationDirectory=every-sync
+LogsDirectory=every-sync
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/every-sync /var/log/every-sync
+
+[Install]
+WantedBy=multi-user.target

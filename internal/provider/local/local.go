@@ -192,7 +192,7 @@ func (l *LocalProvider) WatchChanges(ctx context.Context, path string) (<-chan p
 	l.mu.Unlock()
 
 	fullPath := l.resolve(path)
-	if err := l.watcher.Add(fullPath); err != nil {
+	if err := l.addWatchRecursive(fullPath); err != nil {
 		return nil, fmt.Errorf("watch path: %w", err)
 	}
 
@@ -218,6 +218,9 @@ func (l *LocalProvider) WatchChanges(ctx context.Context, path string) (<-chan p
 				switch {
 				case event.Op&fsnotify.Create == fsnotify.Create:
 					ce.Type = provider.EventCreate
+					if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+						_ = l.addWatchRecursive(event.Name)
+					}
 				case event.Op&fsnotify.Write == fsnotify.Write:
 					ce.Type = provider.EventModify
 				case event.Op&fsnotify.Remove == fsnotify.Remove:
@@ -257,6 +260,28 @@ func (l *LocalProvider) GetChangeToken(_ context.Context, path string) (string, 
 func (l *LocalProvider) resolve(path string) string {
 	cleaned := filepath.Clean(strings.TrimPrefix(path, "/"))
 	return filepath.Join(l.rootPath, cleaned)
+}
+
+func (l *LocalProvider) addWatchRecursive(root string) error {
+	l.mu.Lock()
+	watcher := l.watcher
+	l.mu.Unlock()
+	if watcher == nil {
+		return nil
+	}
+
+	return filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if err := watcher.Add(p); err != nil && !strings.Contains(err.Error(), "already exists") {
+			return err
+		}
+		return nil
+	})
 }
 
 func (l *LocalProvider) relative(base, name string) string {

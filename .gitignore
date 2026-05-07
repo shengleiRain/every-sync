@@ -4,3 +4,4 @@ bin/
 *.db-wal
 .env
 /every-sync
+.omx/

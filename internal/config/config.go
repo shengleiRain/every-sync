@@ -37,6 +37,8 @@ type SyncConfig struct {
 	ScanInterval    time.Duration `yaml:"scan_interval" json:"scan_interval"`
 	UploadLimit     string        `yaml:"upload_limit" json:"upload_limit"`
 	DownloadLimit   string        `yaml:"download_limit" json:"download_limit"`
+	ChunkSize       string        `yaml:"chunk_size" json:"chunk_size"`
+	ChunkThreshold  string        `yaml:"chunk_threshold" json:"chunk_threshold"`
 }
 
 type LogConfig struct {
@@ -82,6 +84,10 @@ func Default() *Config {
 			RetryMax:        3,
 			RetryDelay:      5 * time.Second,
 			ScanInterval:    5 * time.Minute,
+			UploadLimit:     "0",
+			DownloadLimit:   "0",
+			ChunkSize:       "8MB",
+			ChunkThreshold:  "16MB",
 		},
 		Log: LogConfig{
 			Level:  "info",
@@ -175,6 +181,8 @@ sync:
   scan_interval: ` + cfg.Sync.ScanInterval.String() + `
   upload_limit: "0"
   download_limit: "0"
+  chunk_size: "8MB"
+  chunk_threshold: "16MB"
 
 log:
   level: "` + cfg.Log.Level + `"

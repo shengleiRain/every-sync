@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"embed"
+	"io/fs"
 	"net/http"
 	"time"
 
@@ -10,6 +12,9 @@ import (
 	"github.com/rain/every-sync/internal/server/handler"
 	"github.com/rain/every-sync/internal/store"
 )
+
+//go:embed static/*
+var staticFiles embed.FS
 
 type Server struct {
 	httpServer *http.Server
@@ -39,9 +44,13 @@ func New(s *store.Store, e *engine.Engine, addr string) *Server {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+	api.HandleFunc("GET /api/v1/status", h.Status)
+	api.HandleFunc("POST /api/v1/sync", h.TriggerSync)
+	api.HandleFunc("GET /api/v1/events", h.Events)
 
 	corsHandler := corsMiddleware(api)
-	mux.Handle("/", corsHandler)
+	mux.Handle("/api/v1/", corsHandler)
+	mux.Handle("/", staticHandler())
 
 	return &Server{
 		httpServer: &http.Server{
@@ -54,6 +63,26 @@ func New(s *store.Store, e *engine.Engine, addr string) *Server {
 		engine: e,
 		store:  s,
 	}
+}
+
+func staticHandler() http.Handler {
+	sub, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		return http.NotFoundHandler()
+	}
+	files := http.FS(sub)
+	fileServer := http.FileServer(files)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			if f, err := files.Open(r.URL.Path[1:]); err == nil {
+				_ = f.Close()
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+			r.URL.Path = "/"
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) Start() error {

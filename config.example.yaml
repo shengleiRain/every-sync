@@ -17,6 +17,8 @@ sync:
   scan_interval: 5m
   upload_limit: "0"           # 0 = unlimited
   download_limit: "0"         # 0 = unlimited
+  chunk_size: "8MB"
+  chunk_threshold: "16MB"
 
 log:
   level: "info"               # debug/info/warn/error

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"runtime"
 	"sync"
@@ -56,6 +57,10 @@ type Config struct {
 	RetryMax        int
 	RetryDelay      time.Duration
 	ScanInterval    time.Duration
+	UploadLimit     int64
+	DownloadLimit   int64
+	ChunkSize       int64
+	ChunkThreshold  int64
 	DryRun          bool
 }
 
@@ -68,7 +73,46 @@ func DefaultConfig() Config {
 		RetryMax:        3,
 		RetryDelay:      5 * time.Second,
 		ScanInterval:    5 * time.Minute,
+		ChunkSize:       8 * 1024 * 1024,
+		ChunkThreshold:  16 * 1024 * 1024,
 	}
+}
+
+type Event struct {
+	Type      string    `json:"type"`
+	Time      time.Time `json:"time"`
+	PairID    int64     `json:"pair_id,omitempty"`
+	PairName  string    `json:"pair_name,omitempty"`
+	TaskType  string    `json:"task_type,omitempty"`
+	Path      string    `json:"path,omitempty"`
+	Pending   int64     `json:"pending"`
+	Error     string    `json:"error,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	Direction string    `json:"direction,omitempty"`
+}
+
+type Status struct {
+	Running         bool         `json:"running"`
+	StartedAt       *time.Time   `json:"started_at,omitempty"`
+	RegisteredPairs int          `json:"registered_pairs"`
+	Pending         int64        `json:"pending"`
+	MaxWorkers      int          `json:"max_workers"`
+	ScanInterval    string       `json:"scan_interval"`
+	UploadLimit     int64        `json:"upload_limit"`
+	DownloadLimit   int64        `json:"download_limit"`
+	ChunkSize       int64        `json:"chunk_size"`
+	ChunkThreshold  int64        `json:"chunk_threshold"`
+	Pairs           []PairStatus `json:"pairs"`
+}
+
+type PairStatus struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Direction  string `json:"direction"`
+	Enabled    bool   `json:"enabled"`
+	Provider   string `json:"provider"`
+	LocalPath  string `json:"local_path"`
+	RemotePath string `json:"remote_path"`
 }
 
 // PairRegistrar creates providers for a sync pair.
@@ -85,11 +129,16 @@ type Engine struct {
 	taskQueue chan SyncTask
 	results   chan TaskResult
 
-	pending int64 // atomic counter for pending tasks
-	mu      sync.RWMutex
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
+	pending   int64 // atomic counter for pending tasks
+	mu        sync.RWMutex
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	startedAt *time.Time
+	running   bool
+
+	subsMu sync.Mutex
+	subs   map[chan Event]struct{}
 }
 
 func New(s *store.Store, cfg Config) *Engine {
@@ -104,6 +153,7 @@ func New(s *store.Store, cfg Config) *Engine {
 		pairs:     make(map[int64]*store.SyncPair),
 		taskQueue: make(chan SyncTask, cfg.QueueSize),
 		results:   make(chan TaskResult, cfg.QueueSize),
+		subs:      make(map[chan Event]struct{}),
 	}
 }
 
@@ -121,6 +171,10 @@ func (e *Engine) RegisterPair(pair *store.SyncPair, local, remote provider.Provi
 	e.locals[pair.ID] = local
 	e.remotes[pair.ID] = remote
 	logger.L.Info().Int64("pair_id", pair.ID).Str("name", pair.Name).Msg("pair registered")
+	e.broadcast(Event{Type: "pair_registered", PairID: pair.ID, PairName: pair.Name})
+	if e.ctx != nil {
+		e.startPairWatcherLocked(pair.ID, pair, local)
+	}
 }
 
 // UnregisterPair removes a sync pair from the engine.
@@ -133,6 +187,7 @@ func (e *Engine) UnregisterPair(pairID int64) {
 	delete(e.pairs, pairID)
 	delete(e.locals, pairID)
 	delete(e.remotes, pairID)
+	e.broadcast(Event{Type: "pair_unregistered", PairID: pairID})
 }
 
 // RefreshPairs reloads pairs from DB, registers new enabled ones, unregisters disabled ones.
@@ -185,6 +240,9 @@ func (e *Engine) RefreshPairs() error {
 func (e *Engine) Start(parent context.Context) error {
 	e.mu.Lock()
 	e.ctx, e.cancel = context.WithCancel(parent)
+	now := time.Now()
+	e.startedAt = &now
+	e.running = true
 	e.mu.Unlock()
 
 	for i := 0; i < e.config.MaxWorkers; i++ {
@@ -198,7 +256,14 @@ func (e *Engine) Start(parent context.Context) error {
 	e.wg.Add(1)
 	go e.periodicScan()
 
+	e.mu.RLock()
+	for id, pair := range e.pairs {
+		e.startPairWatcherLocked(id, pair, e.locals[id])
+	}
+	e.mu.RUnlock()
+
 	logger.L.Info().Int("workers", e.config.MaxWorkers).Dur("scan_interval", e.config.ScanInterval).Msg("engine started")
+	e.broadcast(Event{Type: "engine_started", Message: "engine started"})
 	return nil
 }
 
@@ -212,7 +277,68 @@ func (e *Engine) Stop() {
 		cancel()
 	}
 	e.wg.Wait()
+	e.mu.Lock()
+	for _, p := range e.locals {
+		_ = p.Close()
+	}
+	for _, p := range e.remotes {
+		_ = p.Close()
+	}
+	e.running = false
+	e.mu.Unlock()
 	logger.L.Info().Msg("engine stopped")
+	e.broadcast(Event{Type: "engine_stopped", Message: "engine stopped"})
+}
+
+func (e *Engine) Status() Status {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	pairs := make([]PairStatus, 0, len(e.pairs))
+	for _, pair := range e.pairs {
+		pairs = append(pairs, PairStatus{
+			ID:         pair.ID,
+			Name:       pair.Name,
+			Direction:  pair.Direction,
+			Enabled:    pair.Enabled,
+			Provider:   pair.Provider,
+			LocalPath:  pair.LocalPath,
+			RemotePath: pair.RemotePath,
+		})
+	}
+
+	return Status{
+		Running:         e.running,
+		StartedAt:       e.startedAt,
+		RegisteredPairs: len(e.pairs),
+		Pending:         atomic.LoadInt64(&e.pending),
+		MaxWorkers:      e.config.MaxWorkers,
+		ScanInterval:    e.config.ScanInterval.String(),
+		UploadLimit:     e.config.UploadLimit,
+		DownloadLimit:   e.config.DownloadLimit,
+		ChunkSize:       e.config.ChunkSize,
+		ChunkThreshold:  e.config.ChunkThreshold,
+		Pairs:           pairs,
+	}
+}
+
+func (e *Engine) Subscribe(ctx context.Context) <-chan Event {
+	ch := make(chan Event, 32)
+	e.subsMu.Lock()
+	e.subs[ch] = struct{}{}
+	e.subsMu.Unlock()
+
+	ch <- Event{Type: "snapshot", Time: time.Now(), Pending: atomic.LoadInt64(&e.pending)}
+
+	go func() {
+		<-ctx.Done()
+		e.subsMu.Lock()
+		delete(e.subs, ch)
+		e.subsMu.Unlock()
+		close(ch)
+	}()
+
+	return ch
 }
 
 // Drain waits for all pending tasks to complete or until timeout.
@@ -240,7 +366,13 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 		return err
 	}
 
-	return e.syncOnePair(ctx, pair, local, remote, dir)
+	e.broadcast(Event{Type: "sync_started", PairID: pair.ID, PairName: pair.Name, Direction: string(dir)})
+	if err := e.syncOnePair(ctx, pair, local, remote, dir); err != nil {
+		e.broadcast(Event{Type: "sync_failed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), Error: err.Error()})
+		return err
+	}
+	e.broadcast(Event{Type: "sync_completed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir)})
+	return nil
 }
 
 // SyncAll triggers an immediate sync for all registered pairs.
@@ -327,6 +459,7 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 		atomic.AddInt64(&e.pending, 1)
 		select {
 		case e.taskQueue <- task:
+			e.broadcast(Event{Type: "task_queued", PairID: task.PairID, PairName: pair.Name, TaskType: string(task.Type), Path: task.Path, Pending: atomic.LoadInt64(&e.pending)})
 		case <-ctx.Done():
 			atomic.AddInt64(&e.pending, -1)
 			return ctx.Err()
@@ -669,13 +802,14 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		return fmt.Errorf("read local file: %w", err)
 	}
 	defer reader.Close()
+	transferReader := e.transferReader(reader, meta.Size, e.config.UploadLimit, pair, filePath, TaskUpload)
 
 	dir := path.Dir(filePath)
 	if dir != "/" && dir != "." {
 		remote.CreateDir(ctx, dir)
 	}
 
-	if err := remote.PutFile(ctx, filePath, reader, meta); err != nil {
+	if err := remote.PutFile(ctx, filePath, transferReader, meta); err != nil {
 		return fmt.Errorf("upload to remote: %w", err)
 	}
 
@@ -706,13 +840,14 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		return fmt.Errorf("read remote file: %w", err)
 	}
 	defer reader.Close()
+	transferReader := e.transferReader(reader, meta.Size, e.config.DownloadLimit, pair, filePath, TaskDownload)
 
 	dir := path.Dir(filePath)
 	if dir != "/" && dir != "." {
 		local.CreateDir(ctx, dir)
 	}
 
-	if err := local.PutFile(ctx, filePath, reader, meta); err != nil {
+	if err := local.PutFile(ctx, filePath, transferReader, meta); err != nil {
 		return fmt.Errorf("download to local: %w", err)
 	}
 
@@ -781,9 +916,11 @@ func (e *Engine) processResults() {
 				} else {
 					atomic.AddInt64(&e.pending, -1)
 					logger.L.Error().Err(result.Error).Str("path", result.Task.Path).Str("type", string(result.Task.Type)).Msg("task permanently failed")
+					e.broadcast(Event{Type: "task_failed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Error: result.Error.Error(), Pending: atomic.LoadInt64(&e.pending)})
 				}
 			} else {
 				atomic.AddInt64(&e.pending, -1)
+				e.broadcast(Event{Type: "task_completed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending)})
 			}
 		}
 	}
@@ -807,4 +944,154 @@ func (e *Engine) periodicScan() {
 			_ = e.SyncAll(e.ctx)
 		}
 	}
+}
+
+func (e *Engine) startPairWatcherLocked(pairID int64, pair *store.SyncPair, local provider.Provider) {
+	ctx := e.ctx
+	if ctx == nil || local == nil {
+		return
+	}
+
+	changes, err := local.WatchChanges(ctx, "/")
+	if err != nil {
+		if !errors.Is(err, provider.ErrNotSupported) {
+			logger.L.Warn().Err(err).Int64("pair_id", pairID).Str("name", pair.Name).Msg("local watcher unavailable")
+		}
+		return
+	}
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		var timer *time.Timer
+		for {
+			var timerC <-chan time.Time
+			if timer != nil {
+				timerC = timer.C
+			}
+			select {
+			case <-ctx.Done():
+				if timer != nil {
+					timer.Stop()
+				}
+				return
+			case event, ok := <-changes:
+				if !ok {
+					return
+				}
+				e.broadcast(Event{Type: "file_changed", PairID: pairID, PairName: pair.Name, Path: event.Path, Message: string(event.Type)})
+				if timer == nil {
+					timer = time.NewTimer(500 * time.Millisecond)
+				} else {
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(500 * time.Millisecond)
+				}
+			case <-timerC:
+				timer = nil
+				logger.L.Debug().Int64("pair_id", pairID).Str("name", pair.Name).Msg("watch-triggered sync")
+				if err := e.SyncPair(ctx, pairID, ""); err != nil {
+					logger.L.Error().Err(err).Int64("pair_id", pairID).Msg("watch-triggered sync failed")
+				}
+			}
+		}
+	}()
+}
+
+func (e *Engine) broadcast(event Event) {
+	event.Time = time.Now()
+	if event.Pending == 0 {
+		event.Pending = atomic.LoadInt64(&e.pending)
+	}
+
+	e.subsMu.Lock()
+	defer e.subsMu.Unlock()
+	for ch := range e.subs {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
+}
+
+func (e *Engine) transferReader(reader io.Reader, size, bytesPerSecond int64, pair *store.SyncPair, filePath string, taskType TaskType) io.Reader {
+	if e.config.ChunkSize > 0 && e.config.ChunkThreshold > 0 && size >= e.config.ChunkThreshold {
+		reader = &chunkProgressReader{
+			reader:    reader,
+			chunkSize: e.config.ChunkSize,
+			size:      size,
+			pair:      pair,
+			filePath:  filePath,
+			taskType:  taskType,
+			emit:      e.broadcast,
+		}
+	}
+	if bytesPerSecond <= 0 {
+		return reader
+	}
+	return &rateLimitedReader{
+		reader:         reader,
+		bytesPerSecond: bytesPerSecond,
+		started:        time.Now(),
+	}
+}
+
+type chunkProgressReader struct {
+	reader    io.Reader
+	chunkSize int64
+	size      int64
+	read      int64
+	next      int64
+	pair      *store.SyncPair
+	filePath  string
+	taskType  TaskType
+	emit      func(Event)
+}
+
+func (r *chunkProgressReader) Read(p []byte) (int, error) {
+	if r.next == 0 {
+		r.next = r.chunkSize
+	}
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.read += int64(n)
+		for r.read >= r.next || (err == io.EOF && r.read == r.size) {
+			r.emit(Event{
+				Type:     "chunk_transferred",
+				PairID:   r.pair.ID,
+				PairName: r.pair.Name,
+				TaskType: string(r.taskType),
+				Path:     r.filePath,
+				Message:  fmt.Sprintf("%d/%d", r.read, r.size),
+			})
+			r.next += r.chunkSize
+			if r.read < r.next {
+				break
+			}
+		}
+	}
+	return n, err
+}
+
+type rateLimitedReader struct {
+	reader         io.Reader
+	bytesPerSecond int64
+	started        time.Time
+	read           int64
+}
+
+func (r *rateLimitedReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.read += int64(n)
+		wantElapsed := time.Duration(r.read*int64(time.Second)) / time.Duration(r.bytesPerSecond)
+		if sleep := r.started.Add(wantElapsed).Sub(time.Now()); sleep > 0 {
+			time.Sleep(sleep)
+		}
+	}
+	return n, err
 }

@@ -86,6 +86,19 @@ func assertMissing(t *testing.T, root, rel string) {
 	}
 }
 
+func waitForFileContent(t *testing.T, root, rel, want string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		got, err := os.ReadFile(filepath.Join(root, rel))
+		if err == nil && string(got) == want {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	assertFileContent(t, root, rel, want)
+}
+
 func runPairSync(t *testing.T, eng *Engine, pairID int64, direction string) {
 	t.Helper()
 	if err := eng.SyncPair(context.Background(), pairID, direction); err != nil {
@@ -194,6 +207,23 @@ func TestEngineDryRunDoesNotWriteFilesOrIndex(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("dry run indexed %d entries, want 0", len(entries))
 	}
+}
+
+func TestEngineWatchChangesTriggersSync(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	pair := &store.SyncPair{Name: "watch", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "up", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	newStartedTestEngine(t, s, pair, Config{RetryMax: 0, ScanInterval: time.Hour})
+	time.Sleep(100 * time.Millisecond)
+
+	writeTestFile(t, localDir, "watched.txt", "inotify")
+	waitForFileContent(t, remoteDir, "watched.txt", "inotify")
 }
 
 func TestEngineSkipsIdentifierFiles(t *testing.T) {

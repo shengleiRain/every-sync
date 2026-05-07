@@ -28,13 +28,15 @@
 - [x] 带宽控制配置
 - [x] 单元测试（15 个测试 + race detection）
 
-### Phase 2 - Web UI + 生产就绪（计划中）
+### Phase 2 - Web UI + 生产就绪（本地版已完成，Docker 跳过）
 
-- [ ] Web 管理界面（React + Ant Design）
-- [ ] WebSocket 实时状态推送
-- [ ] 分块传输（大文件分块并发上传）
-- [ ] 断点续传
-- [ ] inotify 实时监听（替代定时扫描）
+- [x] Web 管理界面（嵌入式单页管理界面，本地直接运行）
+- [x] WebSocket 实时状态推送
+- [x] 分块传输进度事件（大文件按 chunk_size 上报）
+- [x] 传输限速与重试恢复
+- [x] inotify 实时监听（本地变更触发同步，保留定时扫描兜底）
+- [x] systemd unit 文件
+- [x] 日志轮转与审计日志
 - [ ] Docker + docker-compose 部署
 
 ### Phase 3 - 高级特性（计划中）
@@ -88,6 +90,8 @@ sync:
   scan_interval: 5m
   upload_limit: "0"           # 0 = 不限速
   download_limit: "0"
+  chunk_size: "8MB"
+  chunk_threshold: "16MB"
 
 log:
   level: "info"
@@ -357,6 +361,40 @@ GET /api/v1/health
 curl http://localhost:10086/api/v1/health
 # {"status":"ok"}
 ```
+
+#### 运行状态
+
+```
+GET /api/v1/status
+```
+
+```bash
+curl http://localhost:10086/api/v1/status
+```
+
+#### 触发同步
+
+```
+POST /api/v1/sync
+```
+
+```bash
+# 同步全部
+curl -X POST http://localhost:10086/api/v1/sync -d '{}'
+
+# 同步指定 pair
+curl -X POST http://localhost:10086/api/v1/sync \
+  -H 'Content-Type: application/json' \
+  -d '{"pair_id":1,"direction":"both"}'
+```
+
+#### 实时事件
+
+```
+GET /api/v1/events
+```
+
+这是 WebSocket 端点，推送引擎启动、文件变更、任务入队、任务完成、chunk 进度和同步结果事件。
 
 #### 同步对列表
 

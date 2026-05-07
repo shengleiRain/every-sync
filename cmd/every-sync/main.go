@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -627,6 +628,10 @@ func loadConfig() *config.Config {
 }
 
 func engineConfigFromAppConfig(cfg *config.Config, dryRun bool) engine.Config {
+	uploadLimit, _ := parseByteRate(cfg.Sync.UploadLimit)
+	downloadLimit, _ := parseByteRate(cfg.Sync.DownloadLimit)
+	chunkSize, _ := parseByteSize(cfg.Sync.ChunkSize)
+	chunkThreshold, _ := parseByteSize(cfg.Sync.ChunkThreshold)
 	return engine.Config{
 		MaxWorkers:      cfg.Sync.MaxWorkers,
 		UploadWorkers:   cfg.Sync.UploadWorkers,
@@ -635,8 +640,56 @@ func engineConfigFromAppConfig(cfg *config.Config, dryRun bool) engine.Config {
 		RetryMax:        cfg.Sync.RetryMax,
 		RetryDelay:      cfg.Sync.RetryDelay,
 		ScanInterval:    cfg.Sync.ScanInterval,
+		UploadLimit:     uploadLimit,
+		DownloadLimit:   downloadLimit,
+		ChunkSize:       chunkSize,
+		ChunkThreshold:  chunkThreshold,
 		DryRun:          dryRun,
 	}
+}
+
+func parseByteRate(value string) (int64, error) {
+	cleaned := strings.TrimSpace(strings.ToUpper(value))
+	cleaned = strings.TrimSuffix(cleaned, "/S")
+	cleaned = strings.TrimSuffix(cleaned, "PS")
+	return parseByteSize(cleaned)
+}
+
+func parseByteSize(value string) (int64, error) {
+	cleaned := strings.TrimSpace(strings.ToUpper(value))
+	if cleaned == "" || cleaned == "0" {
+		return 0, nil
+	}
+
+	units := []struct {
+		suffix string
+		mult   int64
+	}{
+		{"GIB", 1024 * 1024 * 1024},
+		{"GB", 1024 * 1024 * 1024},
+		{"MIB", 1024 * 1024},
+		{"MB", 1024 * 1024},
+		{"KIB", 1024},
+		{"KB", 1024},
+		{"B", 1},
+	}
+	mult := int64(1)
+	for _, unit := range units {
+		if strings.HasSuffix(cleaned, unit.suffix) {
+			mult = unit.mult
+			cleaned = strings.TrimSpace(strings.TrimSuffix(cleaned, unit.suffix))
+			break
+		}
+	}
+
+	n, err := strconv.ParseFloat(cleaned, 64)
+	if err != nil {
+		return 0, err
+	}
+	if n <= 0 {
+		return 0, nil
+	}
+	return int64(n * float64(mult)), nil
 }
 
 type providerEntry struct {
