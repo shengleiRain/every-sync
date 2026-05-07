@@ -1,0 +1,10 @@
+{
+  "session_id": "019e01c2-8c90-7f20-8ceb-65a4c83c729b",
+  "native_session_id": "019e01c2-8c90-7f20-8ceb-65a4c83c729b",
+  "started_at": "2026-05-07T09:26:31.715Z",
+  "cwd": "/home/rain/project/every-sync",
+  "pid": 437550,
+  "platform": "linux",
+  "pid_start_ticks": 2891402,
+  "pid_cmdline": "/home/rain/.vscode-server/extensions/openai.chatgpt-26.429.30905-linux-x64/bin/linux-x86_64/codex app-server --analytics-default-enabled"
+}

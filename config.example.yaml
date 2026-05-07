@@ -1,0 +1,52 @@
+# EverySync Configuration Example
+
+server:
+  host: "0.0.0.0"
+  port: 10086
+
+database:
+  path: "~/.every-sync/every-sync.db"
+
+sync:
+  max_workers: 0              # 0 = auto (CPU * 2)
+  upload_workers: 4
+  download_workers: 8
+  queue_size: 10000
+  retry_max: 3
+  retry_delay: 5s
+  scan_interval: 5m
+  upload_limit: "0"           # 0 = unlimited
+  download_limit: "0"         # 0 = unlimited
+
+log:
+  level: "info"               # debug/info/warn/error
+  format: "json"              # json/text
+  path: "~/.every-sync/logs"
+
+# Storage providers
+providers:
+  - name: "my-webdav"
+    type: "webdav"
+    params:
+      endpoint: "https://dav.example.com"
+      username: "user"
+      password: "pass"
+
+# Sync pairs
+pairs:
+  - name: "photos"
+    local_path: "/home/user/photos"
+    remote_path: "/photos"
+    provider: "webdav"
+    mode: "mirror"             # mirror/selective/virtual
+    direction: "both"          # up/down/both
+    enabled: true
+    schedule: ""               # empty = realtime
+
+  - name: "backup"
+    local_path: "/home/user/documents"
+    remote_path: "/backup/docs"
+    provider: "webdav"
+    mode: "mirror"
+    direction: "up"            # upload only
+    enabled: true
