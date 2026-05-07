@@ -33,7 +33,8 @@
 - [x] Web 管理界面（嵌入式单页管理界面，本地直接运行）
 - [x] WebSocket 实时状态推送
 - [x] 分块传输进度事件（大文件按 chunk_size 上报）
-- [x] 传输限速与重试恢复
+- [x] 断点续传能力检测（源端 Range 读取 + 目标端 offset 写入时启用；WebDAV 上传不伪装支持）
+- [x] 传输限速与失败重试
 - [x] inotify 实时监听（本地变更触发同步，保留定时扫描兜底）
 - [x] systemd unit 文件
 - [x] 日志轮转与审计日志
@@ -395,6 +396,10 @@ GET /api/v1/events
 ```
 
 这是 WebSocket 端点，推送引擎启动、文件变更、任务入队、任务完成、chunk 进度和同步结果事件。
+
+### 断点续传能力边界
+
+EverySync 会按 Provider 能力启用严格断点续传：源端需要支持 Range 读取，目标端需要支持按 offset 写入。当前 `local -> local` 上传/下载可严格续传，`webdav -> local` 下载可基于 HTTP Range 续传；`local -> webdav` 上传仍使用流式上传、限速、分块进度和失败重试，因为通用 WebDAV PUT 不提供可靠的远端 append/compose 语义。`GET /api/v1/status` 会在每个同步对里返回 `resumable_upload` / `resumable_download`，Web UI 也会显示当前能力。
 
 #### 同步对列表
 

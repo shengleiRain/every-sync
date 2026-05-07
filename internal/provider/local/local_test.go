@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,6 +85,48 @@ func TestLocalProvider_PutAndGetFile(t *testing.T) {
 	}
 	if meta.Size != int64(len(content)) {
 		t.Fatalf("size mismatch: got %d, want %d", meta.Size, len(content))
+	}
+}
+
+func TestLocalProvider_RangeReadAndResumeWrite(t *testing.T) {
+	p, _ := setupTestProvider(t)
+	ctx := context.Background()
+
+	if err := p.PutFile(ctx, "/range.txt", strings.NewReader("0123456789"), nil); err != nil {
+		t.Fatalf("PutFile: %v", err)
+	}
+
+	reader, meta, err := p.GetFileRange(ctx, "/range.txt", 4, 3)
+	if err != nil {
+		t.Fatalf("GetFileRange: %v", err)
+	}
+	buf := make([]byte, 3)
+	n, err := reader.Read(buf)
+	reader.Close()
+	if n != 3 || string(buf) != "456" || err != nil {
+		t.Fatalf("range read = n:%d buf:%q err:%v", n, string(buf), err)
+	}
+	if meta.Size != 10 {
+		t.Fatalf("range meta size = %d, want 10", meta.Size)
+	}
+
+	if err := p.PutFileResume(ctx, "/resume.txt", strings.NewReader("0123"), nil, 0); err != nil {
+		t.Fatalf("PutFileResume first: %v", err)
+	}
+	if err := p.PutFileResume(ctx, "/resume.txt", strings.NewReader("456789"), nil, 4); err != nil {
+		t.Fatalf("PutFileResume second: %v", err)
+	}
+	got, _, err := p.GetFile(ctx, "/resume.txt")
+	if err != nil {
+		t.Fatalf("GetFile resume: %v", err)
+	}
+	defer got.Close()
+	data, err := io.ReadAll(got)
+	if err != nil {
+		t.Fatalf("read resume: %v", err)
+	}
+	if string(data) != "0123456789" {
+		t.Fatalf("resume content = %q, want 0123456789", string(data))
 	}
 }
 

@@ -226,6 +226,7 @@
         <tr>
           <td>${p.id}</td><td>${escapeHtml(p.name)}</td><td>${p.enabled ? 'enabled' : 'disabled'}</td>
           <td>${escapeHtml(p.direction)}</td><td>${escapeHtml(p.provider)}</td>
+          <td>${p.resumable_upload ? '上传/续传' : '上传/重试'} · ${p.resumable_download ? '下载/续传' : '下载/重试'}</td>
           <td>${escapeHtml(p.local_path)}</td><td>${escapeHtml(p.remote_path)}</td>
           <td><div class="actions">
             <button data-sync="${p.id}">同步</button>
@@ -233,7 +234,7 @@
             <button data-delete-pair="${p.id}">删除</button>
           </div></td>
         </tr>`).join('');
-      $('pairs-table').innerHTML = `<table><thead><tr><th>ID</th><th>名称</th><th>状态</th><th>方向</th><th>Provider</th><th>本地</th><th>远程</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="muted">暂无同步对</td></tr>'}</tbody></table>`;
+      $('pairs-table').innerHTML = `<table><thead><tr><th>ID</th><th>名称</th><th>状态</th><th>方向</th><th>Provider</th><th>续传能力</th><th>本地</th><th>远程</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td colspan="9" class="muted">暂无同步对</td></tr>'}</tbody></table>`;
     }
 
     function renderProviders() {

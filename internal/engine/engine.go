@@ -7,6 +7,7 @@ import (
 	"io"
 	"path"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,8 @@ const (
 	TaskMove     TaskType = "move"
 	TaskHash     TaskType = "hash"
 )
+
+const partialSuffix = ".every-sync.part"
 
 type SyncTask struct {
 	ID           string
@@ -106,13 +109,17 @@ type Status struct {
 }
 
 type PairStatus struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	Direction  string `json:"direction"`
-	Enabled    bool   `json:"enabled"`
-	Provider   string `json:"provider"`
-	LocalPath  string `json:"local_path"`
-	RemotePath string `json:"remote_path"`
+	ID                 int64                 `json:"id"`
+	Name               string                `json:"name"`
+	Direction          string                `json:"direction"`
+	Enabled            bool                  `json:"enabled"`
+	Provider           string                `json:"provider"`
+	LocalPath          string                `json:"local_path"`
+	RemotePath         string                `json:"remote_path"`
+	ResumableUpload    bool                  `json:"resumable_upload"`
+	ResumableDownload  bool                  `json:"resumable_download"`
+	LocalCapabilities  provider.Capabilities `json:"local_capabilities"`
+	RemoteCapabilities provider.Capabilities `json:"remote_capabilities"`
 }
 
 // PairRegistrar creates providers for a sync pair.
@@ -295,15 +302,21 @@ func (e *Engine) Status() Status {
 	defer e.mu.RUnlock()
 
 	pairs := make([]PairStatus, 0, len(e.pairs))
-	for _, pair := range e.pairs {
+	for id, pair := range e.pairs {
+		localCaps := provider.DetectCapabilities(e.locals[id])
+		remoteCaps := provider.DetectCapabilities(e.remotes[id])
 		pairs = append(pairs, PairStatus{
-			ID:         pair.ID,
-			Name:       pair.Name,
-			Direction:  pair.Direction,
-			Enabled:    pair.Enabled,
-			Provider:   pair.Provider,
-			LocalPath:  pair.LocalPath,
-			RemotePath: pair.RemotePath,
+			ID:                 pair.ID,
+			Name:               pair.Name,
+			Direction:          pair.Direction,
+			Enabled:            pair.Enabled,
+			Provider:           pair.Provider,
+			LocalPath:          pair.LocalPath,
+			RemotePath:         pair.RemotePath,
+			ResumableUpload:    localCaps.RangeRead && remoteCaps.ResumeWrite,
+			ResumableDownload:  remoteCaps.RangeRead && localCaps.ResumeWrite,
+			LocalCapabilities:  localCaps,
+			RemoteCapabilities: remoteCaps,
 		})
 	}
 
@@ -499,7 +512,8 @@ func (e *Engine) scanRecursive(ctx context.Context, p provider.Provider, rootPat
 }
 
 func shouldSkipPath(filePath string) bool {
-	return path.Base(path.Clean(filePath)) == "Identifier"
+	base := path.Base(path.Clean(filePath))
+	return base == "Identifier" || strings.HasSuffix(base, partialSuffix)
 }
 
 func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, dir Direction) []SyncTask {
@@ -797,6 +811,26 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 }
 
 func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, filePath string) error {
+	if meta, err := local.Stat(ctx, filePath); err == nil && e.canResumeTransfer(local, remote, meta.Size) {
+		remoteMeta, err := e.doResumableTransfer(ctx, pair, local, remote, filePath, meta, e.config.UploadLimit, TaskUpload)
+		if err != nil {
+			return fmt.Errorf("resumable upload to remote: %w", err)
+		}
+		if err := e.store.UpsertFileEntry(&store.FileEntry{
+			Path:        filePath,
+			SyncPairID:  pair.ID,
+			LocalMTime:  &meta.ModTime,
+			RemoteMTime: &remoteMeta.ModTime,
+			LocalSize:   meta.Size,
+			RemoteSize:  remoteMeta.Size,
+			SyncState:   "synced",
+		}); err != nil {
+			return fmt.Errorf("record upload: %w", err)
+		}
+		logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Bool("resumed", true).Msg("uploaded")
+		return nil
+	}
+
 	reader, meta, err := local.GetFile(ctx, filePath)
 	if err != nil {
 		return fmt.Errorf("read local file: %w", err)
@@ -835,6 +869,26 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 }
 
 func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, filePath string) error {
+	if meta, err := remote.Stat(ctx, filePath); err == nil && e.canResumeTransfer(remote, local, meta.Size) {
+		localMeta, err := e.doResumableTransfer(ctx, pair, remote, local, filePath, meta, e.config.DownloadLimit, TaskDownload)
+		if err != nil {
+			return fmt.Errorf("resumable download to local: %w", err)
+		}
+		if err := e.store.UpsertFileEntry(&store.FileEntry{
+			Path:        filePath,
+			SyncPairID:  pair.ID,
+			LocalMTime:  &localMeta.ModTime,
+			RemoteMTime: &meta.ModTime,
+			LocalSize:   localMeta.Size,
+			RemoteSize:  meta.Size,
+			SyncState:   "synced",
+		}); err != nil {
+			return fmt.Errorf("record download: %w", err)
+		}
+		logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Bool("resumed", true).Msg("downloaded")
+		return nil
+	}
+
 	reader, meta, err := remote.GetFile(ctx, filePath)
 	if err != nil {
 		return fmt.Errorf("read remote file: %w", err)
@@ -870,6 +924,73 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 
 	logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Msg("downloaded")
 	return nil
+}
+
+func (e *Engine) canResumeTransfer(source, target provider.Provider, size int64) bool {
+	if e.config.ChunkThreshold <= 0 || size < e.config.ChunkThreshold {
+		return false
+	}
+	_, canRangeRead := source.(provider.RangeReader)
+	_, canResumeWrite := target.(provider.ResumeWriter)
+	return canRangeRead && canResumeWrite
+}
+
+func (e *Engine) doResumableTransfer(ctx context.Context, pair *store.SyncPair, source, target provider.Provider, filePath string, sourceMeta *provider.FileMeta, bytesPerSecond int64, taskType TaskType) (*provider.FileMeta, error) {
+	rangeReader := source.(provider.RangeReader)
+	resumeWriter := target.(provider.ResumeWriter)
+	partialPath := filePath + partialSuffix
+
+	dir := path.Dir(filePath)
+	if dir != "/" && dir != "." {
+		_ = target.CreateDir(ctx, dir)
+	}
+
+	offset := int64(0)
+	if partialMeta, err := target.Stat(ctx, partialPath); err == nil && partialMeta != nil && !partialMeta.IsDir {
+		switch {
+		case partialMeta.Size < sourceMeta.Size:
+			offset = partialMeta.Size
+			e.broadcast(Event{
+				Type:     "transfer_resumed",
+				PairID:   pair.ID,
+				PairName: pair.Name,
+				TaskType: string(taskType),
+				Path:     filePath,
+				Message:  fmt.Sprintf("%d/%d", offset, sourceMeta.Size),
+			})
+		case partialMeta.Size == sourceMeta.Size:
+			if err := target.MoveFile(ctx, partialPath, filePath); err != nil {
+				return nil, fmt.Errorf("finalize complete partial file: %w", err)
+			}
+			targetMeta, err := target.Stat(ctx, filePath)
+			if err != nil {
+				targetMeta = sourceMeta
+			}
+			return targetMeta, nil
+		default:
+			_ = target.DeleteFile(ctx, partialPath)
+		}
+	}
+
+	reader, _, err := rangeReader.GetFileRange(ctx, filePath, offset, sourceMeta.Size-offset)
+	if err != nil {
+		return nil, fmt.Errorf("read source range: %w", err)
+	}
+	defer reader.Close()
+
+	transferReader := e.transferReader(reader, sourceMeta.Size-offset, bytesPerSecond, pair, filePath, taskType)
+	if err := resumeWriter.PutFileResume(ctx, partialPath, transferReader, sourceMeta, offset); err != nil {
+		return nil, fmt.Errorf("write partial file: %w", err)
+	}
+	if err := target.MoveFile(ctx, partialPath, filePath); err != nil {
+		return nil, fmt.Errorf("finalize partial file: %w", err)
+	}
+
+	targetMeta, err := target.Stat(ctx, filePath)
+	if err != nil {
+		targetMeta = sourceMeta
+	}
+	return targetMeta, nil
 }
 
 func (e *Engine) doDelete(ctx context.Context, pair *store.SyncPair, target provider.Provider, filePath string) error {

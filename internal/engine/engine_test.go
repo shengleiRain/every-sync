@@ -226,12 +226,51 @@ func TestEngineWatchChangesTriggersSync(t *testing.T) {
 	waitForFileContent(t, remoteDir, "watched.txt", "inotify")
 }
 
+func TestEngineResumesDownloadFromPartialFile(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, remoteDir, "large.txt", "0123456789")
+	writeTestFile(t, localDir, "large.txt"+partialSuffix, "0123")
+
+	pair := &store.SyncPair{Name: "resume-down", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "down", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0, ChunkThreshold: 4, ChunkSize: 4})
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, localDir, "large.txt", "0123456789")
+	assertMissing(t, localDir, "large.txt"+partialSuffix)
+}
+
+func TestEngineStatusReportsResumeCapabilities(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	pair := &store.SyncPair{Name: "caps", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "both", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0, ChunkThreshold: 4, ChunkSize: 4})
+	status := eng.Status()
+	if len(status.Pairs) != 1 {
+		t.Fatalf("pairs = %d, want 1", len(status.Pairs))
+	}
+	if !status.Pairs[0].ResumableUpload || !status.Pairs[0].ResumableDownload {
+		t.Fatalf("resume capabilities = upload:%v download:%v, want both true", status.Pairs[0].ResumableUpload, status.Pairs[0].ResumableDownload)
+	}
+}
+
 func TestEngineSkipsIdentifierFiles(t *testing.T) {
 	s := newTestStore(t)
 	localDir := t.TempDir()
 	remoteDir := t.TempDir()
 	writeTestFile(t, localDir, "Identifier", "skip")
 	writeTestFile(t, localDir, "nested/Identifier", "skip nested")
+	writeTestFile(t, localDir, "file.txt"+partialSuffix, "skip partial")
 	writeTestFile(t, localDir, "keep.txt", "sync")
 
 	pair := &store.SyncPair{Name: "identifier", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "up", Enabled: true}
@@ -243,6 +282,7 @@ func TestEngineSkipsIdentifierFiles(t *testing.T) {
 	runPairSync(t, eng, pair.ID, "")
 	assertMissing(t, remoteDir, "Identifier")
 	assertMissing(t, remoteDir, filepath.Join("nested", "Identifier"))
+	assertMissing(t, remoteDir, "file.txt"+partialSuffix)
 	assertFileContent(t, remoteDir, "keep.txt", "sync")
 }
 

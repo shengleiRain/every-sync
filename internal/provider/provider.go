@@ -30,7 +30,7 @@ type FileMeta struct {
 type ChangeEvent struct {
 	Path      string    `json:"path"`
 	Type      EventType `json:"type"`
-	Source    string    `json:"source"`    // local or remote
+	Source    string    `json:"source"` // local or remote
 	Timestamp time.Time `json:"timestamp"`
 	Meta      *FileMeta `json:"meta,omitempty"`
 }
@@ -38,10 +38,10 @@ type ChangeEvent struct {
 type EventType string
 
 const (
-	EventCreate  EventType = "create"
-	EventModify  EventType = "modify"
-	EventDelete  EventType = "delete"
-	EventRename  EventType = "rename"
+	EventCreate EventType = "create"
+	EventModify EventType = "modify"
+	EventDelete EventType = "delete"
+	EventRename EventType = "rename"
 )
 
 // Provider is the interface all storage backends must implement.
@@ -83,6 +83,39 @@ type Provider interface {
 	// GetChangeToken returns a token representing the current state.
 	// Can be used to detect remote changes by comparing tokens.
 	GetChangeToken(ctx context.Context, path string) (string, error)
+}
+
+// Capabilities describe optional transport features a provider can expose.
+type Capabilities struct {
+	RangeRead   bool `json:"range_read"`
+	ResumeWrite bool `json:"resume_write"`
+}
+
+// CapabilityProvider can report optional transport capabilities.
+type CapabilityProvider interface {
+	Capabilities() Capabilities
+}
+
+// RangeReader can read a byte range from a file.
+type RangeReader interface {
+	GetFileRange(ctx context.Context, path string, offset, length int64) (io.ReadCloser, *FileMeta, error)
+}
+
+// ResumeWriter can append/overwrite content at a known offset.
+type ResumeWriter interface {
+	PutFileResume(ctx context.Context, path string, reader io.Reader, meta *FileMeta, offset int64) error
+}
+
+func DetectCapabilities(p Provider) Capabilities {
+	if p == nil {
+		return Capabilities{}
+	}
+	if cp, ok := p.(CapabilityProvider); ok {
+		return cp.Capabilities()
+	}
+	_, canRangeRead := p.(RangeReader)
+	_, canResumeWrite := p.(ResumeWriter)
+	return Capabilities{RangeRead: canRangeRead, ResumeWrite: canResumeWrite}
 }
 
 // Config holds provider-specific configuration.

@@ -66,6 +66,10 @@ func (w *WebDAVProvider) Name() string {
 	return "webdav"
 }
 
+func (w *WebDAVProvider) Capabilities() provider.Capabilities {
+	return provider.Capabilities{RangeRead: true, ResumeWrite: false}
+}
+
 func (w *WebDAVProvider) GetFile(_ context.Context, remotePath string) (io.ReadCloser, *provider.FileMeta, error) {
 	fullPath := w.resolve(remotePath)
 
@@ -75,6 +79,28 @@ func (w *WebDAVProvider) GetFile(_ context.Context, remotePath string) (io.ReadC
 	}
 
 	reader, err := w.client.ReadStream(fullPath)
+	if err != nil {
+		return nil, nil, w.mapError(err)
+	}
+
+	return reader, meta, nil
+}
+
+func (w *WebDAVProvider) GetFileRange(_ context.Context, remotePath string, offset, length int64) (io.ReadCloser, *provider.FileMeta, error) {
+	fullPath := w.resolve(remotePath)
+
+	meta, err := w.Stat(context.Background(), remotePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	if offset > meta.Size {
+		return nil, nil, fmt.Errorf("range offset %d exceeds file size %d", offset, meta.Size)
+	}
+	if length <= 0 || offset+length > meta.Size {
+		length = meta.Size - offset
+	}
+
+	reader, err := w.client.ReadStreamRange(fullPath, offset, length)
 	if err != nil {
 		return nil, nil, w.mapError(err)
 	}

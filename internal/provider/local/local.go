@@ -71,6 +71,10 @@ func (l *LocalProvider) Name() string {
 	return "local"
 }
 
+func (l *LocalProvider) Capabilities() provider.Capabilities {
+	return provider.Capabilities{RangeRead: true, ResumeWrite: true}
+}
+
 func (l *LocalProvider) GetFile(_ context.Context, path string) (io.ReadCloser, *provider.FileMeta, error) {
 	fullPath := l.resolve(path)
 	f, err := os.Open(fullPath)
@@ -90,6 +94,38 @@ func (l *LocalProvider) GetFile(_ context.Context, path string) (io.ReadCloser, 
 	return f, meta, nil
 }
 
+func (l *LocalProvider) GetFileRange(_ context.Context, path string, offset, length int64) (io.ReadCloser, *provider.FileMeta, error) {
+	fullPath := l.resolve(path)
+	f, err := os.Open(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, provider.ErrNotFound
+		}
+		return nil, nil, fmt.Errorf("open file range: %w", err)
+	}
+
+	meta, err := l.fileMeta(fullPath, path)
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	if offset > meta.Size {
+		f.Close()
+		return nil, nil, fmt.Errorf("range offset %d exceeds file size %d", offset, meta.Size)
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		f.Close()
+		return nil, nil, fmt.Errorf("seek file range: %w", err)
+	}
+	if length <= 0 || offset+length > meta.Size {
+		length = meta.Size - offset
+	}
+	return struct {
+		io.Reader
+		io.Closer
+	}{Reader: io.LimitReader(f, length), Closer: f}, meta, nil
+}
+
 func (l *LocalProvider) PutFile(_ context.Context, path string, reader io.Reader, _ *provider.FileMeta) error {
 	fullPath := l.resolve(path)
 
@@ -106,6 +142,35 @@ func (l *LocalProvider) PutFile(_ context.Context, path string, reader io.Reader
 
 	if _, err := io.Copy(f, reader); err != nil {
 		return fmt.Errorf("write file: %w", err)
+	}
+
+	return nil
+}
+
+func (l *LocalProvider) PutFileResume(_ context.Context, path string, reader io.Reader, _ *provider.FileMeta, offset int64) error {
+	fullPath := l.resolve(path)
+
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create directories: %w", err)
+	}
+
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open resumable file: %w", err)
+	}
+	defer f.Close()
+
+	if offset == 0 {
+		if err := f.Truncate(0); err != nil {
+			return fmt.Errorf("truncate resumable file: %w", err)
+		}
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return fmt.Errorf("seek resumable file: %w", err)
+	}
+	if _, err := io.Copy(f, reader); err != nil {
+		return fmt.Errorf("write resumable file: %w", err)
 	}
 
 	return nil
