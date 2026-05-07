@@ -91,7 +91,7 @@ sync:
 
 log:
   level: "info"
-  format: "json"
+  format: "json"               # json 或 console（人类可读格式）
 
 # 配置 WebDAV 服务器连接
 providers:
@@ -234,26 +234,39 @@ every-sync provider remove 1
 
 ### 3. 管理同步对
 
-同步对定义了本地目录与远程目录的映射关系。
+同步对定义了本地目录与远程目录的映射关系。新建的同步对默认为禁用状态。
 
 ```bash
-# 添加同步对（--provider 填 provider 名称，非类型）
+# 添加同步对（默认禁用，--provider 填 provider 名称，非类型）
+every-sync pair add \
+  --name "我的照片" \
+  --local /home/user/photos \
+  --remote /photos \
+  --provider alist \
+  --direction both
+
+# 添加并立即启用同步（加 --enable 会在创建后自动执行一次同步）
 every-sync pair add \
   --name "我的照片" \
   --local /home/user/photos \
   --remote /photos \
   --provider alist \
   --direction both \
-  --mode mirror
+  --enable
 
 # 查看所有同步对
 every-sync pair list
 # 输出：
-#   [1] 我的照片             enabled    both   alist   /home/user/photos -> /photos
+#   ID   Name                 Status     Dir    Provider   Local -> Remote
+#   --   ----                 ------     ---    --------   ----- -> ------
+#   1    我的照片             disabled   both   alist      /home/user/photos -> /photos
 
-# 禁用/启用同步对（支持按名称或 ID）
+# 启用同步对（自动触发一次完整同步）
+every-sync pair enable "我的照片"
+
+# 禁用同步对（支持按名称或 ID）
 every-sync pair disable "我的照片"
-every-sync pair enable 1
+every-sync pair disable 1
 
 # 删除同步对（支持按名称或 ID）
 every-sync pair remove "我的照片"
@@ -298,6 +311,27 @@ every-sync status
 #       Local: /home/user/photos -> Remote: /photos
 #       Files: 128 indexed, 3 pending
 ```
+
+### 6. 查看日志
+
+日志默认输出到 stderr（JSON 格式），同时可配置写入文件：
+
+```bash
+# 启动服务时查看日志
+every-sync serve 2>sync.log
+
+# 实时查看日志
+every-sync serve 2>&1 | tail -f /dev/stdin
+
+# 在配置文件中启用日志文件
+# ~/.every-sync/config.yaml:
+# log:
+#   level: "info"              # debug/info/warn/error
+#   format: "console"          # json 或 console（人类可读）
+#   path: "~/.every-sync/logs" # 日志文件目录（留空则不写文件）
+```
+
+日志文件位于 `~/.every-sync/logs/every-sync.log`（配置 path 后自动创建）。
 
 ## REST API
 

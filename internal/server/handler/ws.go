@@ -5,15 +5,21 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/rain/every-sync/internal/logger"
 	"github.com/rain/every-sync/internal/store"
 )
 
 type Handler struct {
-	store *store.Store
+	store  *store.Store
+	engine interface {
+		RefreshPairs() error
+	}
 }
 
-func New(s *store.Store) *Handler {
-	return &Handler{store: s}
+func New(s *store.Store, e interface {
+	RefreshPairs() error
+}) *Handler {
+	return &Handler{store: s, engine: e}
 }
 
 // --- Sync Pairs ---
@@ -69,7 +75,7 @@ func (h *Handler) CreatePair(w http.ResponseWriter, r *http.Request) {
 		Provider:   req.Provider,
 		Mode:       req.Mode,
 		Direction:  req.Direction,
-		Enabled:    true,
+		Enabled:    false,
 		Schedule:   req.Schedule,
 	}
 
@@ -78,6 +84,7 @@ func (h *Handler) CreatePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L.Info().Str("name", pair.Name).Int64("id", pair.ID).Msg("pair created via API")
 	writeJSON(w, http.StatusCreated, pair)
 }
 
@@ -113,6 +120,7 @@ func (h *Handler) DeletePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L.Info().Int64("id", id).Msg("pair deleted via API")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -172,6 +180,14 @@ func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refresh engine pairs if enabled state changed
+	if req.Enabled != nil {
+		if err := h.engine.RefreshPairs(); err != nil {
+			logger.L.Error().Err(err).Msg("failed to refresh pairs after update")
+		}
+	}
+
+	logger.L.Info().Int64("id", id).Bool("enabled", pair.Enabled).Msg("pair updated via API")
 	writeJSON(w, http.StatusOK, pair)
 }
 
@@ -221,6 +237,7 @@ func (h *Handler) CreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L.Info().Str("name", pc.Name).Int64("id", pc.ID).Msg("provider created via API")
 	writeJSON(w, http.StatusCreated, pc)
 }
 
@@ -288,6 +305,7 @@ func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L.Info().Int64("id", id).Str("name", pc.Name).Msg("provider updated via API")
 	writeJSON(w, http.StatusOK, pc)
 }
 
@@ -303,6 +321,7 @@ func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.L.Info().Int64("id", id).Msg("provider deleted via API")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
