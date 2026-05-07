@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -724,9 +725,10 @@ func registerPairWithProviders(eng *engine.Engine, pair *store.SyncPair, provide
 	if !ok {
 		return fmt.Errorf("provider type '%s' not registered", entry.Type)
 	}
+	params := scopedRemoteParams(entry.Type, entry.Params, pair.RemotePath)
 	if err := remoteProv.Init(context.Background(), provider.Config{
 		Type:   entry.Type,
-		Params: entry.Params,
+		Params: params,
 	}); err != nil {
 		return fmt.Errorf("init provider '%s' for pair %s: %w", pair.Provider, pair.Name, err)
 	}
@@ -781,9 +783,10 @@ func makePairRegistrar(s *store.Store, cfg *config.Config) engine.PairRegistrar 
 		if !ok {
 			return nil, nil, fmt.Errorf("provider type '%s' not registered", pc.Type)
 		}
+		params := scopedRemoteParams(pc.Type, pc.Params, pair.RemotePath)
 		if err := remoteProv.Init(context.Background(), provider.Config{
 			Type:   pc.Type,
-			Params: pc.Params,
+			Params: params,
 		}); err != nil {
 			return nil, nil, fmt.Errorf("init provider '%s': %w", pair.Provider, err)
 		}
@@ -815,4 +818,33 @@ func triggerSyncForPair(s *store.Store, cfg *config.Config, pair *store.SyncPair
 	eng.Drain(30 * time.Second)
 	eng.Stop()
 	return nil
+}
+
+func scopedRemoteParams(providerType string, params map[string]string, remotePath string) map[string]string {
+	scoped := make(map[string]string, len(params)+1)
+	for k, v := range params {
+		scoped[k] = v
+	}
+	if providerType != "webdav" {
+		return scoped
+	}
+
+	pairPrefix := cleanRemotePrefix(remotePath)
+	if pairPrefix == "" {
+		return scoped
+	}
+	if existing := cleanRemotePrefix(scoped["prefix"]); existing != "" {
+		scoped["prefix"] = path.Join(existing, pairPrefix)
+	} else {
+		scoped["prefix"] = pairPrefix
+	}
+	return scoped
+}
+
+func cleanRemotePrefix(remotePath string) string {
+	cleaned := path.Clean("/" + remotePath)
+	if cleaned == "/" || cleaned == "." {
+		return ""
+	}
+	return cleaned
 }

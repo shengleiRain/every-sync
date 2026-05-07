@@ -40,7 +40,15 @@ func (l *LocalProvider) Init(_ context.Context, config provider.Config) error {
 
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return fmt.Errorf("local provider: cannot access root_path: %w", err)
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(absPath, 0755); err != nil {
+				return fmt.Errorf("local provider: create root_path: %w", err)
+			}
+			info, err = os.Stat(absPath)
+		}
+		if err != nil {
+			return fmt.Errorf("local provider: cannot access root_path: %w", err)
+		}
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("local provider: root_path is not a directory")

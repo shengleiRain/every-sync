@@ -196,6 +196,26 @@ func TestEngineDryRunDoesNotWriteFilesOrIndex(t *testing.T) {
 	}
 }
 
+func TestEngineSkipsIdentifierFiles(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "Identifier", "skip")
+	writeTestFile(t, localDir, "nested/Identifier", "skip nested")
+	writeTestFile(t, localDir, "keep.txt", "sync")
+
+	pair := &store.SyncPair{Name: "identifier", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "up", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	assertMissing(t, remoteDir, "Identifier")
+	assertMissing(t, remoteDir, filepath.Join("nested", "Identifier"))
+	assertFileContent(t, remoteDir, "keep.txt", "sync")
+}
+
 func TestEngineBidirectionalPropagatesRemoteDeleteWhenLocalUnchanged(t *testing.T) {
 	s := newTestStore(t)
 	localDir := t.TempDir()

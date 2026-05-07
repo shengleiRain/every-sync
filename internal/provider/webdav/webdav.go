@@ -50,6 +50,11 @@ func (w *WebDAVProvider) Init(_ context.Context, config provider.Config) error {
 	}
 
 	w.client = client
+	if w.prefix != "" {
+		if err := w.client.MkdirAll(w.prefix, 0755); err != nil {
+			return fmt.Errorf("webdav provider: create prefix %s: %w", w.prefix, w.mapError(err))
+		}
+	}
 	return nil
 }
 
@@ -182,7 +187,10 @@ func (w *WebDAVProvider) GetChangeToken(_ context.Context, remotePath string) (s
 func (w *WebDAVProvider) resolve(remotePath string) string {
 	cleaned := path.Clean(remotePath)
 	if w.prefix != "" {
-		return w.prefix + cleaned
+		if cleaned == "/" {
+			return w.prefix
+		}
+		return path.Join(w.prefix, cleaned)
 	}
 	return cleaned
 }

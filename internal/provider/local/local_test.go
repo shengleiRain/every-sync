@@ -44,12 +44,16 @@ func TestLocalProvider_Init(t *testing.T) {
 	}
 	p.Close()
 
-	// Non-existent path
+	// Non-existent path should be created so down/both sync can materialize a missing local root.
+	missing := filepath.Join(t.TempDir(), "new-root")
 	err = p.Init(context.Background(), provider.Config{
-		Params: map[string]string{"root_path": "/nonexistent/path/xyz"},
+		Params: map[string]string{"root_path": missing},
 	})
-	if err == nil {
-		t.Fatal("expected error for non-existent path")
+	if err != nil {
+		t.Fatalf("Init should create missing path: %v", err)
+	}
+	if info, err := os.Stat(missing); err != nil || !info.IsDir() {
+		t.Fatalf("missing path was not created as directory: info=%v err=%v", info, err)
 	}
 }
 

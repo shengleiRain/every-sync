@@ -351,6 +351,9 @@ func (e *Engine) scanRecursive(ctx context.Context, p provider.Provider, rootPat
 		}
 
 		for _, entry := range entries {
+			if shouldSkipPath(entry.Path) {
+				continue
+			}
 			if entry.IsDir {
 				queue = append(queue, entry.Path)
 			} else {
@@ -360,6 +363,10 @@ func (e *Engine) scanRecursive(ctx context.Context, p provider.Provider, rootPat
 	}
 
 	return result, nil
+}
+
+func shouldSkipPath(filePath string) bool {
+	return path.Base(path.Clean(filePath)) == "Identifier"
 }
 
 func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, dir Direction) []SyncTask {
