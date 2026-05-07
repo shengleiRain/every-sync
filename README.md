@@ -91,7 +91,7 @@ sync:
 
 log:
   level: "info"
-  format: "json"               # json 或 console（人类可读格式）
+  format: "console"            # console（人类可读）或 json
 
 # 配置 WebDAV 服务器连接
 providers:
@@ -314,7 +314,7 @@ every-sync status
 
 ### 6. 查看日志
 
-日志默认输出到 stderr（JSON 格式），同时可配置写入文件：
+日志默认输出到 stderr（人类可读格式，包含时间、tag、等级、事项和关键字段），同时可配置写入文件：
 
 ```bash
 # 启动服务时查看日志
@@ -327,7 +327,7 @@ every-sync serve 2>&1 | tail -f /dev/stdin
 # ~/.every-sync/config.yaml:
 # log:
 #   level: "info"              # debug/info/warn/error
-#   format: "console"          # json 或 console（人类可读）
+#   format: "console"          # console（人类可读）或 json
 #   path: "~/.every-sync/logs" # 日志文件目录（留空则不写文件）
 ```
 

@@ -20,7 +20,7 @@ sync:
 
 log:
   level: "info"               # debug/info/warn/error
-  format: "json"              # json/text
+  format: "console"           # console/json
   path: "~/.every-sync/logs"
 
 # Storage providers

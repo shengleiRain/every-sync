@@ -15,7 +15,7 @@ type Config struct {
 	Sync     SyncConfig     `yaml:"sync" json:"sync"`
 	Log      LogConfig      `yaml:"log" json:"log"`
 	Pairs    []SyncPair     `yaml:"pairs" json:"pairs"`
-	Provider []ProviderConf  `yaml:"providers" json:"providers"`
+	Provider []ProviderConf `yaml:"providers" json:"providers"`
 }
 
 type ServerConfig struct {
@@ -50,7 +50,7 @@ type SyncPair struct {
 	LocalPath  string `yaml:"local_path" json:"local_path"`
 	RemotePath string `yaml:"remote_path" json:"remote_path"`
 	Provider   string `yaml:"provider" json:"provider"`
-	Mode       string `yaml:"mode" json:"mode"`       // mirror, selective, virtual
+	Mode       string `yaml:"mode" json:"mode"`           // mirror, selective, virtual
 	Direction  string `yaml:"direction" json:"direction"` // up, down, both
 	Enabled    bool   `yaml:"enabled" json:"enabled"`
 	Schedule   string `yaml:"schedule" json:"schedule"`
@@ -85,7 +85,7 @@ func Default() *Config {
 		},
 		Log: LogConfig{
 			Level:  "info",
-			Format: "json",
+			Format: "console",
 			Path:   filepath.Join(dataDir, "logs"),
 		},
 	}

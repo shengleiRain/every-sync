@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	syncengine "github.com/rain/every-sync/internal/engine"
 	"github.com/rain/every-sync/internal/logger"
 	"github.com/rain/every-sync/internal/store"
 )
@@ -67,6 +68,12 @@ func (h *Handler) CreatePair(w http.ResponseWriter, r *http.Request) {
 	if req.Direction == "" {
 		req.Direction = "both"
 	}
+	dir, err := syncengine.ResolveDirection(req.Direction, "")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Direction = string(dir)
 
 	pair := &store.SyncPair{
 		Name:       req.Name,
@@ -166,7 +173,12 @@ func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
 		pair.Mode = *req.Mode
 	}
 	if req.Direction != nil {
-		pair.Direction = *req.Direction
+		dir, err := syncengine.ResolveDirection(*req.Direction, "")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		pair.Direction = string(dir)
 	}
 	if req.Enabled != nil {
 		pair.Enabled = *req.Enabled

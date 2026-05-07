@@ -26,11 +26,11 @@ const (
 type TaskType string
 
 const (
-	TaskUpload  TaskType = "upload"
+	TaskUpload   TaskType = "upload"
 	TaskDownload TaskType = "download"
-	TaskDelete  TaskType = "delete"
-	TaskMove    TaskType = "move"
-	TaskHash    TaskType = "hash"
+	TaskDelete   TaskType = "delete"
+	TaskMove     TaskType = "move"
+	TaskHash     TaskType = "hash"
 )
 
 type SyncTask struct {
@@ -56,6 +56,7 @@ type Config struct {
 	RetryMax        int
 	RetryDelay      time.Duration
 	ScanInterval    time.Duration
+	DryRun          bool
 }
 
 func DefaultConfig() Config {
@@ -234,9 +235,9 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 	remote := e.remotes[pairID]
 	e.mu.RUnlock()
 
-	dir := Direction(direction)
-	if dir == "" {
-		dir = Direction(pair.Direction)
+	dir, err := ResolveDirection(direction, pair.Direction)
+	if err != nil {
+		return err
 	}
 
 	return e.syncOnePair(ctx, pair, local, remote, dir)
@@ -265,18 +266,14 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	var localFiles, remoteFiles []*provider.FileMeta
 	var err error
 
-	if dir == DirectionUp || dir == DirectionBoth {
-		localFiles, err = e.scanRecursive(ctx, local, "/")
-		if err != nil {
-			return fmt.Errorf("scan local: %w", err)
-		}
+	localFiles, err = e.scanRecursive(ctx, local, "/")
+	if err != nil {
+		return fmt.Errorf("scan local: %w", err)
 	}
 
-	if dir == DirectionDown || dir == DirectionBoth {
-		remoteFiles, err = e.scanRecursive(ctx, remote, "/")
-		if err != nil {
-			return fmt.Errorf("scan remote: %w", err)
-		}
+	remoteFiles, err = e.scanRecursive(ctx, remote, "/")
+	if err != nil {
+		return fmt.Errorf("scan remote: %w", err)
 	}
 
 	logger.L.Info().
@@ -289,9 +286,11 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	dbEntries, _ := e.store.ListFileEntriesByPair(pair.ID)
 
 	tasks := e.generateTasks(pair, localFiles, remoteFiles, dbEntries, dir)
+	taskPaths := make(map[string]bool, len(tasks))
 
 	uploadCount, downloadCount, deleteCount := 0, 0, 0
 	for _, t := range tasks {
+		taskPaths[t.Path] = true
 		switch t.Type {
 		case TaskUpload:
 			uploadCount++
@@ -307,6 +306,22 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 		Int("downloads", downloadCount).
 		Int("deletes", deleteCount).
 		Msg("tasks generated")
+
+	if e.config.DryRun {
+		for _, task := range tasks {
+			logger.L.Info().
+				Str("pair", pair.Name).
+				Str("task", string(task.Type)).
+				Str("path", task.Path).
+				Str("delete_target", task.DeleteTarget).
+				Msg("dry run task")
+		}
+		return nil
+	}
+
+	if err := e.indexCleanFiles(pair, localFiles, remoteFiles, dbEntries, taskPaths, dir); err != nil {
+		return err
+	}
 
 	for _, task := range tasks {
 		atomic.AddInt64(&e.pending, 1)
@@ -362,84 +377,234 @@ func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*
 		remoteMap[key] = f
 	}
 
-	if dir == DirectionUp || dir == DirectionBoth {
-		for key, localMeta := range localMap {
-			remoteMeta, exists := remoteMap[key]
-			if !exists {
-				tasks = append(tasks, SyncTask{
-					Type:     TaskUpload,
-					PairID:   pair.ID,
-					Path:     key,
-					Priority: 2,
-				})
-			} else if localMeta.ModTime.After(remoteMeta.ModTime) {
-				tasks = append(tasks, SyncTask{
-					Type:     TaskUpload,
-					PairID:   pair.ID,
-					Path:     key,
-					Priority: 2,
-				})
-			}
-			delete(remoteMap, key)
-		}
-	}
-
-	if dir == DirectionDown || dir == DirectionBoth {
-		for key, remoteMeta := range remoteMap {
-			localMeta, exists := localMap[key]
-			if !exists {
-				tasks = append(tasks, SyncTask{
-					Type:     TaskDownload,
-					PairID:   pair.ID,
-					Path:     key,
-					Priority: 2,
-				})
-			} else if remoteMeta.ModTime.After(localMeta.ModTime) {
-				tasks = append(tasks, SyncTask{
-					Type:     TaskDownload,
-					PairID:   pair.ID,
-					Path:     key,
-					Priority: 2,
-				})
-			}
-		}
-	}
-
-	// Deletion detection: check DB entries against current scan results
+	entryMap := make(map[string]*store.FileEntry, len(dbEntries))
 	for _, entry := range dbEntries {
-		if entry.SyncState != "synced" {
-			continue
-		}
+		entryMap[path.Clean(entry.Path)] = entry
+	}
 
-		key := path.Clean(entry.Path)
-		_, inLocal := localMap[key]
-		_, inRemote := remoteMap[key]
+	keys := make(map[string]struct{}, len(localMap)+len(remoteMap)+len(entryMap))
+	for key := range localMap {
+		keys[key] = struct{}{}
+	}
+	for key := range remoteMap {
+		keys[key] = struct{}{}
+	}
+	for key := range entryMap {
+		keys[key] = struct{}{}
+	}
 
-		// File deleted from local (only detect if local was scanned)
-		if (dir == DirectionUp || dir == DirectionBoth) && !inLocal {
-			tasks = append(tasks, SyncTask{
-				Type:         TaskDelete,
-				PairID:       pair.ID,
-				Path:         key,
-				Priority:     1,
-				DeleteTarget: "remote",
-			})
-			continue
-		}
+	for key := range keys {
+		localMeta, hasLocal := localMap[key]
+		remoteMeta, hasRemote := remoteMap[key]
+		entry := entryMap[key]
 
-		// File deleted from remote (only detect if remote was scanned)
-		if (dir == DirectionDown || dir == DirectionBoth) && !inRemote {
-			tasks = append(tasks, SyncTask{
-				Type:         TaskDelete,
-				PairID:       pair.ID,
-				Path:         key,
-				Priority:     1,
-				DeleteTarget: "local",
-			})
+		switch dir {
+		case DirectionUp:
+			tasks = append(tasks, generateUpTasks(pair.ID, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+		case DirectionDown:
+			tasks = append(tasks, generateDownTasks(pair.ID, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+		case DirectionBoth:
+			tasks = append(tasks, generateBothTasks(pair.ID, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
 		}
 	}
 
 	return tasks
+}
+
+func generateUpTasks(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+	if hasLocal {
+		if !hasRemote || !sameSnapshot(localMeta, remoteMeta) {
+			if entry == nil || !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
+				return []SyncTask{newTask(TaskUpload, pairID, key)}
+			}
+		}
+		return nil
+	}
+
+	if hasRemote && isSynced(entry) && metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
+		return []SyncTask{newDeleteTask(pairID, key, "remote")}
+	}
+	return nil
+}
+
+func generateDownTasks(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+	if hasRemote {
+		if !hasLocal || !sameSnapshot(localMeta, remoteMeta) {
+			if entry == nil || !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
+				return []SyncTask{newTask(TaskDownload, pairID, key)}
+			}
+		}
+		return nil
+	}
+
+	if hasLocal && isSynced(entry) && metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) {
+		return []SyncTask{newDeleteTask(pairID, key, "local")}
+	}
+	return nil
+}
+
+func generateBothTasks(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+	if hasLocal && hasRemote {
+		if entry == nil || !isSynced(entry) {
+			return latestWinsTask(pairID, key, localMeta, remoteMeta)
+		}
+
+		localChanged := !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize)
+		remoteChanged := !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize)
+
+		switch {
+		case !localChanged && !remoteChanged:
+			return nil
+		case localChanged && !remoteChanged:
+			return []SyncTask{newTask(TaskUpload, pairID, key)}
+		case !localChanged && remoteChanged:
+			return []SyncTask{newTask(TaskDownload, pairID, key)}
+		default:
+			return latestWinsTask(pairID, key, localMeta, remoteMeta)
+		}
+	}
+
+	if hasLocal {
+		if isSynced(entry) && metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) {
+			return []SyncTask{newDeleteTask(pairID, key, "local")}
+		}
+		return []SyncTask{newTask(TaskUpload, pairID, key)}
+	}
+
+	if hasRemote {
+		if isSynced(entry) && metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
+			return []SyncTask{newDeleteTask(pairID, key, "remote")}
+		}
+		return []SyncTask{newTask(TaskDownload, pairID, key)}
+	}
+
+	return nil
+}
+
+func latestWinsTask(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta) []SyncTask {
+	if localMeta == nil || remoteMeta == nil {
+		return nil
+	}
+	if localMeta.ModTime.After(remoteMeta.ModTime) {
+		return []SyncTask{newTask(TaskUpload, pairID, key)}
+	}
+	if remoteMeta.ModTime.After(localMeta.ModTime) {
+		return []SyncTask{newTask(TaskDownload, pairID, key)}
+	}
+	if localMeta.Size != remoteMeta.Size {
+		return []SyncTask{newTask(TaskUpload, pairID, key)}
+	}
+	return nil
+}
+
+func newTask(taskType TaskType, pairID int64, key string) SyncTask {
+	return SyncTask{
+		Type:     taskType,
+		PairID:   pairID,
+		Path:     key,
+		Priority: 2,
+	}
+}
+
+func newDeleteTask(pairID int64, key, target string) SyncTask {
+	return SyncTask{
+		Type:         TaskDelete,
+		PairID:       pairID,
+		Path:         key,
+		Priority:     1,
+		DeleteTarget: target,
+	}
+}
+
+func ResolveDirection(requested, fallback string) (Direction, error) {
+	dir := Direction(requested)
+	if dir == "" {
+		dir = Direction(fallback)
+	}
+	if dir == "" {
+		dir = DirectionBoth
+	}
+
+	switch dir {
+	case DirectionUp, DirectionDown, DirectionBoth:
+		return dir, nil
+	default:
+		return "", fmt.Errorf("invalid sync direction %q: expected up, down, or both", dir)
+	}
+}
+
+func isSynced(entry *store.FileEntry) bool {
+	return entry != nil && entry.SyncState == "synced"
+}
+
+func sameSnapshot(a, b *provider.FileMeta) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Size == b.Size && timesClose(a.ModTime, b.ModTime)
+}
+
+func metaMatchesEntry(meta *provider.FileMeta, recorded *time.Time, size int64) bool {
+	if meta == nil || recorded == nil {
+		return false
+	}
+	return meta.Size == size && timesClose(meta.ModTime, *recorded)
+}
+
+func timesClose(a, b time.Time) bool {
+	if a.Equal(b) {
+		return true
+	}
+	diff := a.Sub(b)
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= time.Second
+}
+
+func (e *Engine) indexCleanFiles(pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, taskPaths map[string]bool, dir Direction) error {
+	if dir != DirectionUp && dir != DirectionDown && dir != DirectionBoth {
+		return nil
+	}
+
+	localMap := make(map[string]*provider.FileMeta, len(localFiles))
+	for _, f := range localFiles {
+		localMap[path.Clean(f.Path)] = f
+	}
+	remoteMap := make(map[string]*provider.FileMeta, len(remoteFiles))
+	for _, f := range remoteFiles {
+		remoteMap[path.Clean(f.Path)] = f
+	}
+	entryMap := make(map[string]*store.FileEntry, len(dbEntries))
+	for _, entry := range dbEntries {
+		entryMap[path.Clean(entry.Path)] = entry
+	}
+
+	for key, localMeta := range localMap {
+		if taskPaths[key] {
+			continue
+		}
+		remoteMeta := remoteMap[key]
+		if !sameSnapshot(localMeta, remoteMeta) {
+			continue
+		}
+		if isSynced(entryMap[key]) {
+			continue
+		}
+		if err := e.store.UpsertFileEntry(&store.FileEntry{
+			Path:        key,
+			SyncPairID:  pair.ID,
+			LocalMTime:  &localMeta.ModTime,
+			RemoteMTime: &remoteMeta.ModTime,
+			LocalSize:   localMeta.Size,
+			RemoteSize:  remoteMeta.Size,
+			SyncState:   "synced",
+		}); err != nil {
+			return fmt.Errorf("index clean file %s: %w", key, err)
+		}
+	}
+
+	return nil
 }
 
 func (e *Engine) worker(id int) {
@@ -507,14 +672,22 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		return fmt.Errorf("upload to remote: %w", err)
 	}
 
-	// Upsert file entry as synced
-	e.store.UpsertFileEntry(&store.FileEntry{
-		Path:       filePath,
-		SyncPairID: pair.ID,
-		LocalMTime: &meta.ModTime,
-		LocalSize:  meta.Size,
-		SyncState:  "synced",
-	})
+	remoteMeta, err := remote.Stat(ctx, filePath)
+	if err != nil {
+		remoteMeta = meta
+	}
+
+	if err := e.store.UpsertFileEntry(&store.FileEntry{
+		Path:        filePath,
+		SyncPairID:  pair.ID,
+		LocalMTime:  &meta.ModTime,
+		RemoteMTime: &remoteMeta.ModTime,
+		LocalSize:   meta.Size,
+		RemoteSize:  remoteMeta.Size,
+		SyncState:   "synced",
+	}); err != nil {
+		return fmt.Errorf("record upload: %w", err)
+	}
 
 	logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Msg("uploaded")
 	return nil
@@ -536,14 +709,22 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		return fmt.Errorf("download to local: %w", err)
 	}
 
-	// Upsert file entry as synced
-	e.store.UpsertFileEntry(&store.FileEntry{
-		Path:       filePath,
-		SyncPairID: pair.ID,
+	localMeta, err := local.Stat(ctx, filePath)
+	if err != nil {
+		localMeta = meta
+	}
+
+	if err := e.store.UpsertFileEntry(&store.FileEntry{
+		Path:        filePath,
+		SyncPairID:  pair.ID,
+		LocalMTime:  &localMeta.ModTime,
 		RemoteMTime: &meta.ModTime,
-		RemoteSize: meta.Size,
-		SyncState:  "synced",
-	})
+		LocalSize:   localMeta.Size,
+		RemoteSize:  meta.Size,
+		SyncState:   "synced",
+	}); err != nil {
+		return fmt.Errorf("record download: %w", err)
+	}
 
 	logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Msg("downloaded")
 	return nil
@@ -579,7 +760,6 @@ func (e *Engine) processResults() {
 			if !ok {
 				return
 			}
-			atomic.AddInt64(&e.pending, -1)
 			if result.Error != nil {
 				if result.Task.Retries < e.config.RetryMax {
 					result.Task.Retries++
@@ -588,11 +768,15 @@ func (e *Engine) processResults() {
 						select {
 						case e.taskQueue <- result.Task:
 						case <-e.ctx.Done():
+							atomic.AddInt64(&e.pending, -1)
 						}
 					})
 				} else {
+					atomic.AddInt64(&e.pending, -1)
 					logger.L.Error().Err(result.Error).Str("path", result.Task.Path).Str("type", string(result.Task.Type)).Msg("task permanently failed")
 				}
+			} else {
+				atomic.AddInt64(&e.pending, -1)
 			}
 		}
 	}
