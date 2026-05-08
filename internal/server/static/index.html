@@ -47,7 +47,7 @@
     a { color: var(--blue); text-decoration: none; }
 
     /* === Layout === */
-    .app { display: flex; min-height: 100vh; }
+    .app { display: flex; min-height: 100vh; overflow-x: hidden; }
     .sidebar {
       width: 220px;
       background: var(--panel);
@@ -58,6 +58,8 @@
       top: 0;
       bottom: 0;
       z-index: 20;
+      transform: translateX(0);
+      transition: transform 0.2s ease;
     }
     .sidebar-brand {
       padding: 20px 16px 16px;
@@ -151,6 +153,7 @@
       display: flex;
       flex-direction: column;
       min-height: 100vh;
+      min-width: 0;
     }
     .topbar {
       height: 52px;
@@ -163,10 +166,12 @@
       position: sticky;
       top: 0;
       z-index: 10;
+      gap: 8px;
+      flex-shrink: 0;
     }
-    .topbar-title { font-size: 15px; font-weight: 600; }
-    .topbar-actions { display: flex; gap: 8px; align-items: center; }
-    .content { flex: 1; padding: 20px 24px 40px; max-width: 1280px; width: 100%; }
+    .topbar-title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .topbar-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+    .content { flex: 1; padding: 20px 24px 40px; max-width: 1280px; width: 100%; overflow-x: hidden; }
 
     /* === Buttons === */
     .btn {
@@ -205,7 +210,7 @@
       border-radius: var(--radius-lg);
       padding: 20px;
     }
-    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; flex-wrap: wrap; }
     .card-title { font-size: 14px; font-weight: 600; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
@@ -219,8 +224,8 @@
     .metric-value.stopped { color: var(--red); }
 
     /* === Tables === */
-    .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
-    table { width: 100%; border-collapse: collapse; }
+    .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; min-width: 600px; }
     th, td { text-align: left; padding: 10px 14px; font-size: 13px; }
     th { color: var(--text-muted); font-weight: 600; font-size: 12px; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
     td { border-bottom: 1px solid var(--border-light); vertical-align: middle; }
@@ -258,9 +263,9 @@
     .form-textarea { min-height: 80px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
 
     /* === Log Viewer === */
-    .log-viewer { background: #0d1117; border: 1px solid #21262d; border-radius: var(--radius-lg); display: flex; flex-direction: column; height: calc(100vh - 220px); min-height: 400px; }
-    .log-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #21262d; border-radius: var(--radius-lg) var(--radius-lg) 0 0; flex-shrink: 0; }
-    .log-filter-input { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 12px; color: #c9d1d9; min-width: 120px; }
+    .log-viewer { background: #0d1117; border: 1px solid #21262d; border-radius: var(--radius-lg); display: flex; flex-direction: column; height: calc(100vh - 220px); min-height: 300px; }
+    .log-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #21262d; border-radius: var(--radius-lg) var(--radius-lg) 0 0; flex-shrink: 0; flex-wrap: wrap; }
+    .log-filter-input { flex: 1; min-width: 100px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 12px; color: #c9d1d9; }
     .log-filter-input::placeholder { color: #484f58; }
     .log-filter-input:focus { outline: none; border-color: #58a6ff; box-shadow: 0 0 0 2px rgba(88,166,255,0.2); }
     .log-filter-btn { padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; font: inherit; font-size: 11px; font-weight: 500; cursor: pointer; transition: all var(--transition); white-space: nowrap; }
@@ -284,9 +289,9 @@
     .log-stats span { display: flex; align-items: center; gap: 4px; }
 
     /* === Detail Grid === */
-    .detail-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
+    .detail-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; overflow-wrap: break-word; }
     .detail-grid dt { color: var(--text-muted); font-weight: 500; white-space: nowrap; }
-    .detail-grid dd { color: var(--text); }
+    .detail-grid dd { color: var(--text); overflow-wrap: break-word; word-break: break-all; }
 
     /* === Toast === */
     .toast-container { position: fixed; top: 16px; right: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
@@ -298,17 +303,57 @@
 
     .hidden { display: none !important; }
 
-    /* === Responsive === */
-    @media (max-width: 900px) {
-      .sidebar { display: none; }
-      .main { margin-left: 0; }
-      .mobile-nav { display: flex !important; overflow-x: auto; gap: 4px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
-      .mobile-nav button { flex-shrink: 0; padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel); font: inherit; font-size: 12px; font-weight: 500; color: var(--text-secondary); cursor: pointer; }
-      .mobile-nav button.active { background: var(--blue-bg); color: var(--blue); border-color: var(--blue-bg); }
-      .grid-4, .grid-2, .form-grid { grid-template-columns: 1fr; }
-      .content { padding: 12px; }
+    /* === Hamburger === */
+    .hamburger { display: none; width: 36px; height: 36px; border: none; background: none; cursor: pointer; padding: 6px; border-radius: var(--radius); color: var(--text); flex-shrink: 0; }
+    .hamburger:hover { background: var(--surface); }
+    .hamburger svg { width: 20px; height: 20px; }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 19; }
+
+    /* === Responsive: Tablet (<1024px) === */
+    @media (max-width: 1024px) {
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      .content { padding: 16px; }
+      .td-path { max-width: 140px; }
+      table { min-width: 500px; }
     }
-    .mobile-nav { display: none; }
+
+    /* === Responsive: Mobile (<768px) === */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-overlay.open { display: block; }
+      .main { margin-left: 0; }
+      .hamburger { display: flex; align-items: center; justify-content: center; }
+      .topbar { padding: 0 12px; }
+      .topbar-title { font-size: 14px; }
+      .content { padding: 12px; }
+      .grid-4 { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
+      .card { padding: 14px; }
+      .metric-value { font-size: 22px; }
+      .log-viewer { height: calc(100vh - 160px); min-height: 250px; }
+      .log-toolbar { padding: 6px 8px; gap: 4px; }
+      .log-filter-btn { padding: 3px 7px; font-size: 10px; }
+      .td-path { max-width: 100px; }
+      table { min-width: 500px; }
+      .btn span.label { display: none; }
+      .detail-grid { grid-template-columns: 1fr; gap: 4px 0; }
+      .detail-grid dt { font-weight: 600; }
+    }
+
+    /* === Responsive: Small mobile (<480px) === */
+    @media (max-width: 480px) {
+      .grid-4 { grid-template-columns: 1fr; }
+      .metric-card { padding: 12px; }
+      .metric-value { font-size: 20px; }
+      .log-viewer { height: calc(100vh - 140px); }
+      .log-stats { gap: 8px; font-size: 10px; flex-wrap: wrap; }
+      .td-actions { gap: 4px; }
+      .btn-sm { height: 26px; padding: 0 8px; font-size: 11px; }
+      .toast { max-width: calc(100vw - 32px); font-size: 12px; }
+      .topbar-actions .btn span.label { display: none; }
+    }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -317,7 +362,7 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
         <h1>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
@@ -372,21 +417,18 @@
       </div>
     </aside>
 
-    <div class="main">
-      <div class="mobile-nav">
-        <button class="active" data-tab="dashboard" data-i18n="nav.dashboard">Dashboard</button>
-        <button data-tab="pairs" data-i18n="nav.pairs">Sync Pairs</button>
-        <button data-tab="providers" data-i18n="nav.providers">Providers</button>
-        <button data-tab="conflicts" data-i18n="nav.conflicts">Conflicts</button>
-        <button data-tab="logs" data-i18n="nav.logs">Logs</button>
-      </div>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
+    <div class="main">
       <div class="topbar">
+        <button class="hamburger" id="hamburger" aria-label="Menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <div class="topbar-title" id="topbar-title" data-i18n="nav.dashboard">Dashboard</div>
         <div class="topbar-actions">
           <button class="btn btn-primary" id="sync-all">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-            <span data-i18n="action.syncAll">Sync All</span>
+            <span class="label" data-i18n="action.syncAll">Sync All</span>
           </button>
           <button class="btn" id="refresh-btn">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
@@ -894,11 +936,13 @@
     /* ====== Navigation ====== */
     const tabTitles = { dashboard: 'nav.dashboard', logs: 'nav.logs', pairs: 'nav.pairs', providers: 'nav.providers', conflicts: 'nav.conflicts', versions: 'nav.versions' };
     function switchTab(tabName) {
-      document.querySelectorAll('.nav-item, .mobile-nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
       document.querySelectorAll('.content > section').forEach(s => s.classList.toggle('hidden', s.id !== tabName));
       $('topbar-title').textContent = t(tabTitles[tabName] || tabName);
     }
-    document.querySelectorAll('.nav-item, .mobile-nav button').forEach(btn => { btn.addEventListener('click', () => switchTab(btn.dataset.tab)); });
+    document.querySelectorAll('.nav-item').forEach(btn => { btn.addEventListener('click', () => { switchTab(btn.dataset.tab); $('sidebar').classList.remove('open'); $('sidebar-overlay').classList.remove('open'); }); });
+    $('hamburger').addEventListener('click', () => { $('sidebar').classList.toggle('open'); $('sidebar-overlay').classList.toggle('open'); });
+    $('sidebar-overlay').addEventListener('click', () => { $('sidebar').classList.remove('open'); $('sidebar-overlay').classList.remove('open'); });
 
     /* ====== Render: Dashboard ====== */
     function renderStatus() {
@@ -926,12 +970,12 @@
         $('active-pairs-list').innerHTML = `<div style="text-align:center;padding:32px;color:var(--text-muted)">${t('empty.noActivePairs')}</div>`;
       } else {
         $('active-pairs-list').innerHTML = pairs.map(p => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-light)">
-            <div style="display:flex;align-items:center;gap:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-light);gap:8px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1">
               <span class="tag tag-green">${escapeHtml(p.direction)}</span>
-              <div><div style="font-weight:600;font-size:13px">${escapeHtml(p.name)}</div><div style="font-size:12px;color:var(--text-muted)">${escapeHtml(p.local_path)} <-> ${escapeHtml(p.remote_path)}</div></div>
+              <div style="min-width:0"><div style="font-weight:600;font-size:13px">${escapeHtml(p.name)}</div><div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.local_path)} <-> ${escapeHtml(p.remote_path)}</div></div>
             </div>
-            <button class="btn btn-sm" data-sync="${p.id}">${t('btn.sync')}</button>
+            <button class="btn btn-sm" data-sync="${p.id}" style="flex-shrink:0">${t('btn.sync')}</button>
           </div>`).join('');
       }
     }
