@@ -83,14 +83,33 @@ func cmdServe(args []string) {
 	fs.StringVar(&dataDir, "data-dir", "", "data directory")
 	fs.Parse(args)
 
+	if configPath == "" {
+		homeDir, _ := os.UserHomeDir()
+		configPath = filepath.Join(homeDir, ".every-sync", "config.yaml")
+	}
+
 	initLogger()
 
 	cfg := loadConfig()
 
 	dbPath := cfg.Database.Path
+	logPath := cfg.Log.Path
 	if dataDir != "" {
 		dbPath = filepath.Join(dataDir, "every-sync.db")
+		logPath = filepath.Join(dataDir, "logs")
 	}
+
+	// Ensure data directory exists
+	if dir := filepath.Dir(dbPath); dir != "" {
+		os.MkdirAll(dir, 0755)
+	}
+	if logPath != "" {
+		os.MkdirAll(logPath, 0755)
+	}
+
+	fmt.Printf("EverySync data directory: %s\n", filepath.Dir(dbPath))
+	fmt.Printf("Database: %s\n", dbPath)
+	fmt.Printf("Logs: %s\n", logPath)
 	s, err := store.Open(dbPath)
 	if err != nil {
 		logger.L.Fatal().Err(err).Msg("opening database")

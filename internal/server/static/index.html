@@ -117,21 +117,33 @@
     .sidebar-footer {
       padding: 12px 16px;
       border-top: 1px solid var(--border-light);
-      font-size: 12px;
-      color: var(--text-muted);
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
     }
-    .status-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--red);
-      flex-shrink: 0;
+    .sidebar-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+    .status-dot.on { background: var(--green); box-shadow: 0 0 0 2px var(--green-bg); }
+
+    /* === Language Switcher === */
+    .lang-switch {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
     }
-    .status-dot.on {
-      background: var(--green);
-      box-shadow: 0 0 0 2px var(--green-bg);
+    .lang-btn {
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border: none;
+      background: var(--panel);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--transition);
     }
+    .lang-btn:hover { color: var(--text); }
+    .lang-btn.active { background: var(--blue); color: #fff; }
 
     .main {
       flex: 1;
@@ -193,79 +205,32 @@
       border-radius: var(--radius-lg);
       padding: 20px;
     }
-    .card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-    }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
     .card-title { font-size: 14px; font-weight: 600; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 
     /* === Metric Cards === */
-    .metric-card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 16px;
-    }
-    .metric-label {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
+    .metric-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; }
+    .metric-label { font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
     .metric-label svg { width: 14px; height: 14px; }
     .metric-value { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
     .metric-value.running { color: var(--green); }
     .metric-value.stopped { color: var(--red); }
-    .metric-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
     /* === Tables === */
-    .table-wrap {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-    }
+    .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 10px 14px; font-size: 13px; }
-    th {
-      color: var(--text-muted);
-      font-weight: 600;
-      font-size: 12px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
+    th { color: var(--text-muted); font-weight: 600; font-size: 12px; background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
     td { border-bottom: 1px solid var(--border-light); vertical-align: middle; }
     tr:last-child td { border-bottom: 0; }
     tr:hover td { background: #fafbfc; }
     .td-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    .td-path {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-secondary);
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .td-path { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* === Tags === */
-    .tag {
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      white-space: nowrap;
-    }
+    .tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
     .tag-green { background: var(--green-bg); color: var(--green); }
     .tag-red { background: var(--red-bg); color: var(--red); }
     .tag-blue { background: var(--blue-bg); color: var(--blue); }
@@ -273,18 +238,10 @@
     .tag-gray { background: var(--surface); color: var(--text-secondary); }
 
     /* === Forms === */
-    .form-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-    }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .form-group { display: grid; gap: 5px; }
     .form-group.full { grid-column: 1 / -1; }
-    .form-label {
-      font-size: 12.5px;
-      font-weight: 500;
-      color: var(--text-secondary);
-    }
+    .form-label { font-size: 12.5px; font-weight: 500; color: var(--text-secondary); }
     .form-input, .form-select, .form-textarea {
       width: 100%;
       border: 1px solid var(--border);
@@ -297,185 +254,47 @@
       background: var(--panel);
       transition: border-color var(--transition);
     }
-    .form-input:focus, .form-select:focus, .form-textarea:focus {
-      outline: none;
-      border-color: var(--blue);
-      box-shadow: 0 0 0 3px var(--blue-bg);
-    }
-    .form-textarea {
-      min-height: 80px;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 1.5;
-    }
-    .form-hint { font-size: 11.5px; color: var(--text-muted); }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-bg); }
+    .form-textarea { min-height: 80px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
 
     /* === Log Viewer === */
-    .log-viewer {
-      background: #0d1117;
-      border: 1px solid #21262d;
-      border-radius: var(--radius-lg);
-      display: flex;
-      flex-direction: column;
-      height: calc(100vh - 220px);
-      min-height: 400px;
-    }
-    .log-toolbar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: #161b22;
-      border-bottom: 1px solid #21262d;
-      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-      flex-shrink: 0;
-    }
-    .log-filter-input {
-      flex: 1;
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 6px;
-      padding: 5px 10px;
-      font: inherit;
-      font-size: 12px;
-      color: #c9d1d9;
-      min-width: 120px;
-    }
+    .log-viewer { background: #0d1117; border: 1px solid #21262d; border-radius: var(--radius-lg); display: flex; flex-direction: column; height: calc(100vh - 220px); min-height: 400px; }
+    .log-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #21262d; border-radius: var(--radius-lg) var(--radius-lg) 0 0; flex-shrink: 0; }
+    .log-filter-input { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 12px; color: #c9d1d9; min-width: 120px; }
     .log-filter-input::placeholder { color: #484f58; }
-    .log-filter-input:focus {
-      outline: none;
-      border-color: #58a6ff;
-      box-shadow: 0 0 0 2px rgba(88,166,255,0.2);
-    }
-    .log-filter-btn {
-      padding: 4px 10px;
-      border-radius: 4px;
-      border: 1px solid #30363d;
-      background: #21262d;
-      color: #c9d1d9;
-      font: inherit;
-      font-size: 11px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all var(--transition);
-      white-space: nowrap;
-    }
+    .log-filter-input:focus { outline: none; border-color: #58a6ff; box-shadow: 0 0 0 2px rgba(88,166,255,0.2); }
+    .log-filter-btn { padding: 4px 10px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; font: inherit; font-size: 11px; font-weight: 500; cursor: pointer; transition: all var(--transition); white-space: nowrap; }
     .log-filter-btn:hover { background: #30363d; border-color: #484f58; }
     .log-filter-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-    .log-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 0;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 1.6;
-    }
+    .log-body { flex: 1; overflow-y: auto; padding: 8px 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
     .log-body::-webkit-scrollbar { width: 6px; }
     .log-body::-webkit-scrollbar-track { background: transparent; }
     .log-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
-    .log-line {
-      padding: 2px 12px;
-      color: #b1bac4;
-      display: flex;
-      gap: 0;
-      transition: background var(--transition);
-      cursor: text;
-    }
+    .log-line { padding: 2px 12px; color: #b1bac4; display: flex; transition: background var(--transition); cursor: text; }
     .log-line:hover { background: #161b22; }
-    .log-time {
-      color: #484f58;
-      margin-right: 10px;
-      white-space: nowrap;
-      user-select: none;
-      min-width: 75px;
-    }
-    .log-level {
-      font-weight: 600;
-      margin-right: 8px;
-      min-width: 50px;
-      display: inline-block;
-    }
+    .log-time { color: #484f58; margin-right: 10px; white-space: nowrap; user-select: none; min-width: 75px; }
+    .log-level { font-weight: 600; margin-right: 8px; min-width: 50px; display: inline-block; }
     .log-level.info { color: #58a6ff; }
     .log-level.warn { color: #d29922; }
     .log-level.error { color: #f85149; }
     .log-level.debug { color: #8b949e; }
     .log-level.event { color: #3fb950; }
     .log-msg { color: #c9d1d9; word-break: break-all; }
-    .log-empty {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      color: #484f58;
-      font-family: var(--font-sans);
-      font-size: 13px;
-    }
-    .log-stats {
-      padding: 6px 12px;
-      background: #161b22;
-      border-top: 1px solid #21262d;
-      border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      font-size: 11px;
-      color: #484f58;
-      flex-shrink: 0;
-    }
+    .log-stats { padding: 6px 12px; background: #161b22; border-top: 1px solid #21262d; border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; align-items: center; gap: 16px; font-size: 11px; color: #484f58; flex-shrink: 0; }
     .log-stats span { display: flex; align-items: center; gap: 4px; }
 
-    /* === Empty State === */
-    .empty-state {
-      text-align: center;
-      padding: 48px 24px;
-      color: var(--text-muted);
-    }
-    .empty-state svg { color: var(--border); margin-bottom: 12px; }
-    .empty-state p { font-size: 13px; }
-
-    /* === Detail Row === */
-    .detail-grid {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 6px 16px;
-      font-size: 13px;
-    }
+    /* === Detail Grid === */
+    .detail-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
     .detail-grid dt { color: var(--text-muted); font-weight: 500; white-space: nowrap; }
     .detail-grid dd { color: var(--text); }
 
     /* === Toast === */
-    .toast-container {
-      position: fixed;
-      top: 16px;
-      right: 16px;
-      z-index: 100;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .toast {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 10px 16px;
-      font-size: 13px;
-      box-shadow: var(--shadow-md);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      animation: slideIn 200ms ease;
-      max-width: 380px;
-    }
+    .toast-container { position: fixed; top: 16px; right: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
+    .toast { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 16px; font-size: 13px; box-shadow: var(--shadow-md); display: flex; align-items: center; gap: 8px; animation: slideIn 200ms ease; max-width: 380px; }
     .toast.success { border-left: 3px solid var(--green); }
     .toast.error { border-left: 3px solid var(--red); }
     .toast.info { border-left: 3px solid var(--blue); }
-    .toast-icon { flex-shrink: 0; }
-    .toast-msg { flex: 1; }
-
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateX(20px); }
-      to { opacity: 1; transform: translateX(0); }
-    }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 
     .hidden { display: none !important; }
 
@@ -483,26 +302,8 @@
     @media (max-width: 900px) {
       .sidebar { display: none; }
       .main { margin-left: 0; }
-      .mobile-nav {
-        display: flex !important;
-        overflow-x: auto;
-        gap: 4px;
-        padding: 8px 12px;
-        background: var(--panel);
-        border-bottom: 1px solid var(--border);
-      }
-      .mobile-nav button {
-        flex-shrink: 0;
-        padding: 6px 12px;
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        background: var(--panel);
-        font: inherit;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--text-secondary);
-        cursor: pointer;
-      }
+      .mobile-nav { display: flex !important; overflow-x: auto; gap: 4px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+      .mobile-nav button { flex-shrink: 0; padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel); font: inherit; font-size: 12px; font-weight: 500; color: var(--text-secondary); cursor: pointer; }
       .mobile-nav button.active { background: var(--blue-bg); color: var(--blue); border-color: var(--blue-bg); }
       .grid-4, .grid-2, .form-grid { grid-template-columns: 1fr; }
       .content { padding: 12px; }
@@ -516,7 +317,6 @@
 </head>
 <body>
   <div class="app">
-    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
         <h1>
@@ -526,63 +326,67 @@
       </div>
       <nav class="sidebar-nav">
         <div class="nav-section">
-          <div class="nav-section-title">Overview</div>
+          <div class="nav-section-title" data-i18n="nav.overview">Overview</div>
           <button class="nav-item active" data-tab="dashboard">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-            Dashboard
+            <span data-i18n="nav.dashboard">Dashboard</span>
           </button>
           <button class="nav-item" data-tab="logs">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            Logs
+            <span data-i18n="nav.logs">Logs</span>
           </button>
         </div>
         <div class="nav-section">
-          <div class="nav-section-title">Manage</div>
+          <div class="nav-section-title" data-i18n="nav.manage">Manage</div>
           <button class="nav-item" data-tab="pairs">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
-            Sync Pairs
+            <span data-i18n="nav.pairs">Sync Pairs</span>
           </button>
           <button class="nav-item" data-tab="providers">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-            Providers
+            <span data-i18n="nav.providers">Providers</span>
           </button>
         </div>
         <div class="nav-section">
-          <div class="nav-section-title">Data</div>
+          <div class="nav-section-title" data-i18n="nav.data">Data</div>
           <button class="nav-item" data-tab="conflicts">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Conflicts
+            <span data-i18n="nav.conflicts">Conflicts</span>
             <span class="badge hidden" id="conflict-badge">0</span>
           </button>
           <button class="nav-item" data-tab="versions">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            Versions
+            <span data-i18n="nav.versions">Versions</span>
           </button>
         </div>
       </nav>
       <div class="sidebar-footer">
-        <span class="status-dot" id="ws-dot"></span>
-        <span id="ws-state">Disconnected</span>
+        <div class="sidebar-status">
+          <span class="status-dot" id="ws-dot"></span>
+          <span id="ws-state" data-i18n="ws.disconnected">Disconnected</span>
+        </div>
+        <div class="lang-switch">
+          <button class="lang-btn active" data-lang="zh">中</button>
+          <button class="lang-btn" data-lang="en">EN</button>
+        </div>
       </div>
     </aside>
 
-    <!-- Main -->
     <div class="main">
-      <!-- Mobile Nav -->
       <div class="mobile-nav">
-        <button class="active" data-tab="dashboard">Dashboard</button>
-        <button data-tab="pairs">Pairs</button>
-        <button data-tab="providers">Providers</button>
-        <button data-tab="conflicts">Conflicts</button>
-        <button data-tab="logs">Logs</button>
+        <button class="active" data-tab="dashboard" data-i18n="nav.dashboard">Dashboard</button>
+        <button data-tab="pairs" data-i18n="nav.pairs">Sync Pairs</button>
+        <button data-tab="providers" data-i18n="nav.providers">Providers</button>
+        <button data-tab="conflicts" data-i18n="nav.conflicts">Conflicts</button>
+        <button data-tab="logs" data-i18n="nav.logs">Logs</button>
       </div>
 
       <div class="topbar">
-        <div class="topbar-title" id="topbar-title">Dashboard</div>
+        <div class="topbar-title" id="topbar-title" data-i18n="nav.dashboard">Dashboard</div>
         <div class="topbar-actions">
           <button class="btn btn-primary" id="sync-all">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-            Sync All
+            <span data-i18n="action.syncAll">Sync All</span>
           </button>
           <button class="btn" id="refresh-btn">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
@@ -593,51 +397,33 @@
       <div class="content">
         <!-- Dashboard -->
         <section id="dashboard">
-          <div class="grid-4" id="metrics-grid">
+          <div class="grid-4">
             <div class="metric-card">
-              <div class="metric-label">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                Engine Status
-              </div>
+              <div class="metric-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span data-i18n="metric.engine">Engine Status</span></div>
               <div class="metric-value" id="metric-running">-</div>
             </div>
             <div class="metric-card">
-              <div class="metric-label">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
-                Sync Pairs
-              </div>
+              <div class="metric-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg><span data-i18n="metric.pairs">Sync Pairs</span></div>
               <div class="metric-value" id="metric-pairs">0</div>
             </div>
             <div class="metric-card">
-              <div class="metric-label">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                Pending Tasks
-              </div>
+              <div class="metric-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span data-i18n="metric.pending">Pending Tasks</span></div>
               <div class="metric-value" id="metric-pending">0</div>
             </div>
             <div class="metric-card">
-              <div class="metric-label">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
-                Workers
-              </div>
+              <div class="metric-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg><span data-i18n="metric.workers">Workers</span></div>
               <div class="metric-value" id="metric-workers">0</div>
             </div>
           </div>
-
           <div style="margin-top:16px">
             <div class="card">
-              <div class="card-header">
-                <span class="card-title">Traffic Overview</span>
-              </div>
+              <div class="card-header"><span class="card-title" data-i18n="card.traffic">Traffic Overview</span></div>
               <div class="detail-grid" id="traffic-detail"></div>
             </div>
           </div>
-
           <div style="margin-top:16px">
             <div class="card">
-              <div class="card-header">
-                <span class="card-title">Active Pairs</span>
-              </div>
+              <div class="card-header"><span class="card-title" data-i18n="card.activePairs">Active Pairs</span></div>
               <div id="active-pairs-list"></div>
             </div>
           </div>
@@ -647,7 +433,7 @@
         <section id="logs" class="hidden">
           <div class="log-viewer">
             <div class="log-toolbar">
-              <input class="log-filter-input" id="log-search" placeholder="Filter logs..." aria-label="Filter logs">
+              <input class="log-filter-input" id="log-search" aria-label="Filter logs">
               <button class="log-filter-btn active" data-level="all">All</button>
               <button class="log-filter-btn" data-level="event">Events</button>
               <button class="log-filter-btn" data-level="info">Info</button>
@@ -670,36 +456,34 @@
         <!-- Sync Pairs -->
         <section id="pairs" class="hidden">
           <div class="card" style="margin-bottom:16px">
-            <div class="card-header">
-              <span class="card-title">New Sync Pair</span>
-            </div>
+            <div class="card-header"><span class="card-title" data-i18n="card.newPair">New Sync Pair</span></div>
             <form id="pair-form" class="form-grid">
               <div class="form-group">
-                <label class="form-label">Name</label>
+                <label class="form-label" data-i18n="form.name">Name</label>
                 <input class="form-input" name="name" required placeholder="e.g. my-photos">
               </div>
               <div class="form-group">
-                <label class="form-label">Provider</label>
+                <label class="form-label" data-i18n="form.provider">Provider</label>
                 <select class="form-select" name="provider" id="pair-provider-select"></select>
               </div>
               <div class="form-group">
-                <label class="form-label">Local Path</label>
+                <label class="form-label" data-i18n="form.localPath">Local Path</label>
                 <input class="form-input" name="local_path" required placeholder="/home/user/photos">
               </div>
               <div class="form-group">
-                <label class="form-label">Remote Path</label>
+                <label class="form-label" data-i18n="form.remotePath">Remote Path</label>
                 <input class="form-input" name="remote_path" required placeholder="/photos">
               </div>
               <div class="form-group">
-                <label class="form-label">Direction</label>
+                <label class="form-label" data-i18n="form.direction">Direction</label>
                 <select class="form-select" name="direction">
-                  <option value="both">Bidirectional</option>
-                  <option value="up">Upload Only</option>
-                  <option value="down">Download Only</option>
+                  <option value="both" data-i18n-text="dir.both">Bidirectional</option>
+                  <option value="up" data-i18n-text="dir.up">Upload Only</option>
+                  <option value="down" data-i18n-text="dir.down">Download Only</option>
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Mode</label>
+                <label class="form-label" data-i18n="form.mode">Mode</label>
                 <select class="form-select" name="mode">
                   <option value="mirror">Mirror</option>
                   <option value="selective">Selective</option>
@@ -707,32 +491,32 @@
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Conflict Strategy</label>
+                <label class="form-label" data-i18n="form.conflictStrategy">Conflict Strategy</label>
                 <select class="form-select" name="conflict_strategy">
-                  <option value="latest_wins">Latest Wins</option>
-                  <option value="local_wins">Local Wins</option>
-                  <option value="remote_wins">Remote Wins</option>
-                  <option value="manual">Manual</option>
+                  <option value="latest_wins" data-i18n-text="cs.latestWins">Latest Wins</option>
+                  <option value="local_wins" data-i18n-text="cs.localWins">Local Wins</option>
+                  <option value="remote_wins" data-i18n-text="cs.remoteWins">Remote Wins</option>
+                  <option value="manual" data-i18n-text="cs.manual">Manual</option>
                   <option value="skip">Skip</option>
                 </select>
               </div>
               <div class="form-group">
-                <label class="form-label">Include Patterns</label>
+                <label class="form-label" data-i18n="form.include">Include Patterns</label>
                 <input class="form-input" name="include_patterns" placeholder="*.md, docs/**">
               </div>
               <div class="form-group full">
-                <label class="form-label">Exclude Patterns</label>
+                <label class="form-label" data-i18n="form.exclude">Exclude Patterns</label>
                 <input class="form-input" name="exclude_patterns" placeholder="*.tmp, cache/**">
               </div>
               <div class="form-group full">
-                <button class="btn btn-primary" type="submit">Create Sync Pair</button>
+                <button class="btn btn-primary" type="submit" data-i18n="action.createPair">Create Sync Pair</button>
               </div>
             </form>
           </div>
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>Name</th><th>Status</th><th>Direction</th><th>Mode</th><th>Provider</th><th>Local</th><th>Remote</th><th>Actions</th>
+                <th data-i18n="th.name">Name</th><th data-i18n="th.status">Status</th><th data-i18n="th.direction">Direction</th><th data-i18n="th.mode">Mode</th><th data-i18n="th.provider">Provider</th><th data-i18n="th.local">Local</th><th data-i18n="th.remote">Remote</th><th data-i18n="th.actions">Actions</th>
               </tr></thead>
               <tbody id="pairs-tbody"></tbody>
             </table>
@@ -742,20 +526,18 @@
         <!-- Providers -->
         <section id="providers" class="hidden">
           <div class="card" style="margin-bottom:16px">
-            <div class="card-header">
-              <span class="card-title">New Provider</span>
-            </div>
+            <div class="card-header"><span class="card-title" data-i18n="card.newProvider">New Provider</span></div>
             <form id="provider-form" class="form-grid">
               <div class="form-group">
-                <label class="form-label">Name</label>
+                <label class="form-label" data-i18n="form.name">Name</label>
                 <input class="form-input" name="name" required placeholder="my-webdav">
               </div>
               <div class="form-group">
-                <label class="form-label">Type</label>
+                <label class="form-label" data-i18n="form.type">Type</label>
                 <select class="form-select" name="type"><option>webdav</option><option>local</option></select>
               </div>
               <div class="form-group full">
-                <label class="form-label">Parameters (JSON)</label>
+                <label class="form-label" data-i18n="form.paramsJson">Parameters (JSON)</label>
                 <textarea class="form-textarea" name="params" spellcheck="false">{
   "endpoint": "https://webdav.example.com/dav",
   "username": "",
@@ -763,14 +545,14 @@
 }</textarea>
               </div>
               <div class="form-group full">
-                <button class="btn btn-primary" type="submit">Create Provider</button>
+                <button class="btn btn-primary" type="submit" data-i18n="action.createProvider">Create Provider</button>
               </div>
             </form>
           </div>
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>Name</th><th>Type</th><th>Endpoint</th><th>Actions</th>
+                <th data-i18n="th.name">Name</th><th data-i18n="th.type">Type</th><th data-i18n="th.endpoint">Endpoint</th><th data-i18n="th.actions">Actions</th>
               </tr></thead>
               <tbody id="providers-tbody"></tbody>
             </table>
@@ -782,7 +564,7 @@
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>Sync Pair</th><th>Path</th><th>Status</th><th>Size (Local / Remote)</th><th>Modified</th><th>Actions</th>
+                <th data-i18n="th.syncPair">Sync Pair</th><th data-i18n="th.path">Path</th><th data-i18n="th.status">Status</th><th data-i18n="th.size">Size (Local / Remote)</th><th data-i18n="th.modified">Modified</th><th data-i18n="th.actions">Actions</th>
               </tr></thead>
               <tbody id="conflicts-tbody"></tbody>
             </table>
@@ -794,22 +576,22 @@
           <div class="card" style="margin-bottom:16px">
             <form id="version-filter" class="form-grid">
               <div class="form-group">
-                <label class="form-label">Sync Pair</label>
+                <label class="form-label" data-i18n="th.syncPair">Sync Pair</label>
                 <select class="form-select" name="pair_id" id="version-pair"></select>
               </div>
               <div class="form-group">
-                <label class="form-label">Path</label>
+                <label class="form-label" data-i18n="th.path">Path</label>
                 <input class="form-input" name="path" placeholder="/path/to/file">
               </div>
               <div class="form-group">
-                <button class="btn btn-primary" type="submit">Search</button>
+                <button class="btn btn-primary" type="submit" data-i18n="action.search">Search</button>
               </div>
             </form>
           </div>
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>Sync Pair</th><th>Path</th><th>Source</th><th>Size</th><th>File Time</th><th>Recorded</th>
+                <th data-i18n="th.syncPair">Sync Pair</th><th data-i18n="th.path">Path</th><th data-i18n="th.source">Source</th><th data-i18n="th.size">Size</th><th data-i18n="th.fileTime">File Time</th><th data-i18n="th.recorded">Recorded</th>
               </tr></thead>
               <tbody id="versions-tbody"></tbody>
             </table>
@@ -822,6 +604,256 @@
   <div class="toast-container" id="toasts"></div>
 
   <script>
+    /* ====== i18n ====== */
+    const i18n = {
+      zh: {
+        'nav.overview': '概览',
+        'nav.dashboard': '仪表盘',
+        'nav.logs': '日志',
+        'nav.manage': '管理',
+        'nav.pairs': '同步对',
+        'nav.providers': '存储源',
+        'nav.data': '数据',
+        'nav.conflicts': '冲突',
+        'nav.versions': '版本',
+        'ws.disconnected': '已断开',
+        'ws.connected': '已连接',
+        'ws.reconnecting': '重连中...',
+        'action.syncAll': '全部同步',
+        'action.createPair': '创建同步对',
+        'action.createProvider': '创建存储源',
+        'action.search': '搜索',
+        'metric.engine': '引擎状态',
+        'metric.pairs': '同步对',
+        'metric.pending': '待处理',
+        'metric.workers': '工作线程',
+        'card.traffic': '流量概览',
+        'card.activePairs': '活跃同步对',
+        'card.newPair': '新建同步对',
+        'card.newProvider': '新建存储源',
+        'form.name': '名称',
+        'form.provider': '存储源',
+        'form.type': '类型',
+        'form.localPath': '本地路径',
+        'form.remotePath': '远程路径',
+        'form.direction': '同步方向',
+        'form.mode': '同步模式',
+        'form.conflictStrategy': '冲突策略',
+        'form.include': '包含规则',
+        'form.exclude': '排除规则',
+        'form.paramsJson': '参数 (JSON)',
+        'th.name': '名称',
+        'th.status': '状态',
+        'th.direction': '方向',
+        'th.mode': '模式',
+        'th.provider': '存储源',
+        'th.local': '本地',
+        'th.remote': '远程',
+        'th.actions': '操作',
+        'th.type': '类型',
+        'th.endpoint': '端点',
+        'th.syncPair': '同步对',
+        'th.path': '路径',
+        'th.size': '大小',
+        'th.modified': '修改时间',
+        'th.source': '来源',
+        'th.fileTime': '文件时间',
+        'th.recorded': '记录时间',
+        'dir.both': '双向同步',
+        'dir.up': '仅上传',
+        'dir.down': '仅下载',
+        'cs.latestWins': '最新优先',
+        'cs.localWins': '本地优先',
+        'cs.remoteWins': '远程优先',
+        'cs.manual': '手动处理',
+        'state.running': '运行中',
+        'state.stopped': '已停止',
+        'state.enabled': '已启用',
+        'state.disabled': '已禁用',
+        'btn.sync': '同步',
+        'btn.enable': '启用',
+        'btn.disable': '禁用',
+        'btn.delete': '删除',
+        'btn.localWins': '本地优先',
+        'btn.remoteWins': '远程优先',
+        'btn.latestWins': '最新优先',
+        'btn.skip': '跳过',
+        'empty.noPairs': '暂无同步对配置',
+        'empty.noProviders': '暂无存储源配置',
+        'empty.noConflicts': '暂无冲突',
+        'empty.noVersions': '暂无版本记录',
+        'empty.noActivePairs': '暂无活跃同步对，请在同步对页面创建。',
+        'traffic.uploaded': '已上传',
+        'traffic.downloaded': '已下载',
+        'traffic.deleted': '已删除',
+        'traffic.virtual': '虚拟文件',
+        'traffic.conflicts': '冲突',
+        'traffic.scanInterval': '扫描间隔',
+        'traffic.uploadLimit': '上传限速',
+        'traffic.downloadLimit': '下载限速',
+        'traffic.chunkSize': '分块大小',
+        'traffic.started': '启动时间',
+        'traffic.unlimited': '无限制',
+        'log.filter': '筛选日志...',
+        'log.pause': '暂停',
+        'log.resume': '继续',
+        'log.clear': '清空',
+        'log.total': '总计',
+        'log.showing': '显示',
+        'toast.syncAll': '已触发全部同步',
+        'toast.syncPair': '已触发同步对 #{id}',
+        'toast.pairCreated': '同步对已创建',
+        'toast.pairUpdated': '同步对已更新',
+        'toast.pairDeleted': '同步对已删除',
+        'toast.providerCreated': '存储源已创建',
+        'toast.providerDeleted': '存储源已删除',
+        'toast.conflictResolved': '冲突已解决',
+        'toast.refreshed': '已刷新',
+        'toast.loadFailed': '加载失败: {msg}',
+        'confirm.deletePair': '确认删除此同步对？',
+        'confirm.deleteProvider': '确认删除此存储源？',
+        'option.noProviders': '暂无存储源',
+      },
+      en: {
+        'nav.overview': 'Overview',
+        'nav.dashboard': 'Dashboard',
+        'nav.logs': 'Logs',
+        'nav.manage': 'Manage',
+        'nav.pairs': 'Sync Pairs',
+        'nav.providers': 'Providers',
+        'nav.data': 'Data',
+        'nav.conflicts': 'Conflicts',
+        'nav.versions': 'Versions',
+        'ws.disconnected': 'Disconnected',
+        'ws.connected': 'Connected',
+        'ws.reconnecting': 'Reconnecting...',
+        'action.syncAll': 'Sync All',
+        'action.createPair': 'Create Sync Pair',
+        'action.createProvider': 'Create Provider',
+        'action.search': 'Search',
+        'metric.engine': 'Engine Status',
+        'metric.pairs': 'Sync Pairs',
+        'metric.pending': 'Pending Tasks',
+        'metric.workers': 'Workers',
+        'card.traffic': 'Traffic Overview',
+        'card.activePairs': 'Active Pairs',
+        'card.newPair': 'New Sync Pair',
+        'card.newProvider': 'New Provider',
+        'form.name': 'Name',
+        'form.provider': 'Provider',
+        'form.type': 'Type',
+        'form.localPath': 'Local Path',
+        'form.remotePath': 'Remote Path',
+        'form.direction': 'Direction',
+        'form.mode': 'Mode',
+        'form.conflictStrategy': 'Conflict Strategy',
+        'form.include': 'Include Patterns',
+        'form.exclude': 'Exclude Patterns',
+        'form.paramsJson': 'Parameters (JSON)',
+        'th.name': 'Name',
+        'th.status': 'Status',
+        'th.direction': 'Direction',
+        'th.mode': 'Mode',
+        'th.provider': 'Provider',
+        'th.local': 'Local',
+        'th.remote': 'Remote',
+        'th.actions': 'Actions',
+        'th.type': 'Type',
+        'th.endpoint': 'Endpoint',
+        'th.syncPair': 'Sync Pair',
+        'th.path': 'Path',
+        'th.size': 'Size (Local / Remote)',
+        'th.modified': 'Modified',
+        'th.source': 'Source',
+        'th.fileTime': 'File Time',
+        'th.recorded': 'Recorded',
+        'dir.both': 'Bidirectional',
+        'dir.up': 'Upload Only',
+        'dir.down': 'Download Only',
+        'cs.latestWins': 'Latest Wins',
+        'cs.localWins': 'Local Wins',
+        'cs.remoteWins': 'Remote Wins',
+        'cs.manual': 'Manual',
+        'state.running': 'Running',
+        'state.stopped': 'Stopped',
+        'state.enabled': 'Enabled',
+        'state.disabled': 'Disabled',
+        'btn.sync': 'Sync',
+        'btn.enable': 'Enable',
+        'btn.disable': 'Disable',
+        'btn.delete': 'Delete',
+        'btn.localWins': 'Local Wins',
+        'btn.remoteWins': 'Remote Wins',
+        'btn.latestWins': 'Latest Wins',
+        'btn.skip': 'Skip',
+        'empty.noPairs': 'No sync pairs configured',
+        'empty.noProviders': 'No providers configured',
+        'empty.noConflicts': 'No conflicts',
+        'empty.noVersions': 'No version records',
+        'empty.noActivePairs': 'No active sync pairs. Create one in the Sync Pairs tab.',
+        'traffic.uploaded': 'Uploaded',
+        'traffic.downloaded': 'Downloaded',
+        'traffic.deleted': 'Deleted',
+        'traffic.virtual': 'Virtual Files',
+        'traffic.conflicts': 'Conflicts',
+        'traffic.scanInterval': 'Scan Interval',
+        'traffic.uploadLimit': 'Upload Limit',
+        'traffic.downloadLimit': 'Download Limit',
+        'traffic.chunkSize': 'Chunk Size',
+        'traffic.started': 'Started',
+        'traffic.unlimited': 'Unlimited',
+        'log.filter': 'Filter logs...',
+        'log.pause': 'Pause',
+        'log.resume': 'Resume',
+        'log.clear': 'Clear',
+        'log.total': 'Total',
+        'log.showing': 'Showing',
+        'toast.syncAll': 'Sync triggered for all pairs',
+        'toast.syncPair': 'Sync triggered for pair #{id}',
+        'toast.pairCreated': 'Sync pair created',
+        'toast.pairUpdated': 'Pair updated',
+        'toast.pairDeleted': 'Pair deleted',
+        'toast.providerCreated': 'Provider created',
+        'toast.providerDeleted': 'Provider deleted',
+        'toast.conflictResolved': 'Conflict resolved',
+        'toast.refreshed': 'Refreshed',
+        'toast.loadFailed': 'Failed to load: {msg}',
+        'confirm.deletePair': 'Delete this sync pair?',
+        'confirm.deleteProvider': 'Delete this provider?',
+        'option.noProviders': 'No providers',
+      }
+    };
+
+    let lang = localStorage.getItem('every-sync-lang') || 'zh';
+
+    function t(key, params) {
+      let text = (i18n[lang] && i18n[lang][key]) || (i18n.en[key]) || key;
+      if (params) Object.entries(params).forEach(([k, v]) => { text = text.replace(`{${k}}`, v); });
+      return text;
+    }
+
+    function applyI18n() {
+      document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+      document.querySelectorAll('[data-i18n-text]').forEach(el => { el.textContent = t(el.dataset.i18nText); });
+      document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+      $('log-search').placeholder = t('log.filter');
+      // Re-render dynamic content
+      renderStatus();
+      renderPairs();
+      renderProviders();
+      renderConflicts();
+      renderVersions();
+    }
+
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        lang = btn.dataset.lang;
+        localStorage.setItem('every-sync-lang', lang);
+        document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
+        applyI18n();
+      });
+    });
+
     /* ====== State ====== */
     const state = { status: null, pairs: [], providers: [], conflicts: [], versions: [] };
     const logStore = [];
@@ -833,10 +865,7 @@
 
     /* ====== API ====== */
     async function api(path, options = {}) {
-      const res = await fetch(path, {
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-        ...options
-      });
+      const res = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || res.statusText);
       return data;
@@ -851,159 +880,104 @@
         error: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e5484d" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
         info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4f6ef7" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
       };
-      el.innerHTML = `<span class="toast-icon">${icons[type] || icons.info}</span><span class="toast-msg">${escapeHtml(msg)}</span>`;
+      el.innerHTML = `<span>${icons[type] || icons.info}</span><span style="flex:1">${escapeHtml(msg)}</span>`;
       $('toasts').appendChild(el);
       setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200); }, 4000);
     }
 
     /* ====== Utils ====== */
-    function escapeHtml(v) {
-      return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-    }
-    function formatBytes(b) {
-      if (!b || b === 0) return '0 B';
-      const k = 1024, sizes = ['B','KB','MB','GB','TB'];
-      const i = Math.floor(Math.log(b) / Math.log(k));
-      return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
-    function formatTime(ts) {
-      if (!ts) return '-';
-      try {
-        const d = new Date(ts);
-        return d.toLocaleString('zh-CN', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      } catch { return ts; }
-    }
-    function shortTime() {
-      const d = new Date();
-      return d.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    }
+    function escapeHtml(v) { return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+    function formatBytes(b) { if (!b || b === 0) return '0 B'; const k = 1024, sizes = ['B','KB','MB','GB','TB']; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]; }
+    function formatTime(ts) { if (!ts) return '-'; try { return new Date(ts).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return ts; } }
+    function shortTime() { return new Date().toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
 
     /* ====== Navigation ====== */
-    const tabTitles = { dashboard: 'Dashboard', logs: 'Logs', pairs: 'Sync Pairs', providers: 'Providers', conflicts: 'Conflicts', versions: 'Versions' };
-
+    const tabTitles = { dashboard: 'nav.dashboard', logs: 'nav.logs', pairs: 'nav.pairs', providers: 'nav.providers', conflicts: 'nav.conflicts', versions: 'nav.versions' };
     function switchTab(tabName) {
       document.querySelectorAll('.nav-item, .mobile-nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
       document.querySelectorAll('.content > section').forEach(s => s.classList.toggle('hidden', s.id !== tabName));
-      $('topbar-title').textContent = tabTitles[tabName] || tabName;
+      $('topbar-title').textContent = t(tabTitles[tabName] || tabName);
     }
-
-    document.querySelectorAll('.nav-item, .mobile-nav button').forEach(btn => {
-      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-    });
+    document.querySelectorAll('.nav-item, .mobile-nav button').forEach(btn => { btn.addEventListener('click', () => switchTab(btn.dataset.tab)); });
 
     /* ====== Render: Dashboard ====== */
     function renderStatus() {
       const s = state.status || {};
       const isRunning = !!s.running;
-      $('metric-running').textContent = isRunning ? 'Running' : 'Stopped';
+      $('metric-running').textContent = isRunning ? t('state.running') : t('state.stopped');
       $('metric-running').className = `metric-value ${isRunning ? 'running' : 'stopped'}`;
       $('metric-pairs').textContent = s.registered_pairs || 0;
       $('metric-pending').textContent = s.pending || 0;
       $('metric-workers').textContent = s.max_workers || 0;
-
       const stats = s.stats || {};
       $('traffic-detail').innerHTML = `
-        <dt>Uploaded</dt><dd>${formatBytes(stats.uploaded_bytes)}</dd>
-        <dt>Downloaded</dt><dd>${formatBytes(stats.downloaded_bytes)}</dd>
-        <dt>Deleted</dt><dd>${stats.deleted_files || 0}</dd>
-        <dt>Virtual Files</dt><dd>${stats.virtual_files || 0}</dd>
-        <dt>Conflicts</dt><dd>${stats.conflicts || 0}</dd>
-        <dt>Scan Interval</dt><dd>${s.scan_interval || '-'}</dd>
-        <dt>Upload Limit</dt><dd>${s.upload_limit ? formatBytes(s.upload_limit) + '/s' : 'Unlimited'}</dd>
-        <dt>Download Limit</dt><dd>${s.download_limit ? formatBytes(s.download_limit) + '/s' : 'Unlimited'}</dd>
-        <dt>Chunk Size</dt><dd>${formatBytes(s.chunk_size)}</dd>
-        <dt>Started</dt><dd>${formatTime(s.started_at)}</dd>
-      `;
-
+        <dt>${t('traffic.uploaded')}</dt><dd>${formatBytes(stats.uploaded_bytes)}</dd>
+        <dt>${t('traffic.downloaded')}</dt><dd>${formatBytes(stats.downloaded_bytes)}</dd>
+        <dt>${t('traffic.deleted')}</dt><dd>${stats.deleted_files || 0}</dd>
+        <dt>${t('traffic.virtual')}</dt><dd>${stats.virtual_files || 0}</dd>
+        <dt>${t('traffic.conflicts')}</dt><dd>${stats.conflicts || 0}</dd>
+        <dt>${t('traffic.scanInterval')}</dt><dd>${s.scan_interval || '-'}</dd>
+        <dt>${t('traffic.uploadLimit')}</dt><dd>${s.upload_limit ? formatBytes(s.upload_limit) + '/s' : t('traffic.unlimited')}</dd>
+        <dt>${t('traffic.downloadLimit')}</dt><dd>${s.download_limit ? formatBytes(s.download_limit) + '/s' : t('traffic.unlimited')}</dd>
+        <dt>${t('traffic.chunkSize')}</dt><dd>${formatBytes(s.chunk_size)}</dd>
+        <dt>${t('traffic.started')}</dt><dd>${formatTime(s.started_at)}</dd>`;
       const pairs = (s.pairs || []);
-      if (pairs.length === 0) {
-        $('active-pairs-list').innerHTML = '<div class="empty-state"><p>No active sync pairs. Create one in the Sync Pairs tab.</p></div>';
+      if (!pairs.length) {
+        $('active-pairs-list').innerHTML = `<div style="text-align:center;padding:32px;color:var(--text-muted)">${t('empty.noActivePairs')}</div>`;
       } else {
         $('active-pairs-list').innerHTML = pairs.map(p => `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-light)">
             <div style="display:flex;align-items:center;gap:12px">
               <span class="tag tag-green">${escapeHtml(p.direction)}</span>
-              <div>
-                <div style="font-weight:600;font-size:13px">${escapeHtml(p.name)}</div>
-                <div style="font-size:12px;color:var(--text-muted)">${escapeHtml(p.local_path)} <-> ${escapeHtml(p.remote_path)}</div>
-              </div>
+              <div><div style="font-weight:600;font-size:13px">${escapeHtml(p.name)}</div><div style="font-size:12px;color:var(--text-muted)">${escapeHtml(p.local_path)} <-> ${escapeHtml(p.remote_path)}</div></div>
             </div>
-            <button class="btn btn-sm" data-sync="${p.id}">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-              Sync
-            </button>
-          </div>
-        `).join('');
+            <button class="btn btn-sm" data-sync="${p.id}">${t('btn.sync')}</button>
+          </div>`).join('');
       }
     }
 
     /* ====== Render: Pairs ====== */
     function renderPairs() {
-      // Update provider select
       const provSelect = $('pair-provider-select');
-      provSelect.innerHTML = state.providers.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('');
-      if (!state.providers.length) provSelect.innerHTML = '<option value="">No providers</option>';
-
+      provSelect.innerHTML = state.providers.length
+        ? state.providers.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('')
+        : `<option value="">${t('option.noProviders')}</option>`;
       const tbody = $('pairs-tbody');
-      if (!state.pairs.length) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">No sync pairs configured</td></tr>';
-        return;
-      }
-      tbody.innerHTML = state.pairs.map(p => `
-        <tr>
-          <td><strong>${escapeHtml(p.name)}</strong></td>
-          <td>${p.enabled ? '<span class="tag tag-green">Enabled</span>' : '<span class="tag tag-gray">Disabled</span>'}</td>
-          <td><span class="tag tag-blue">${escapeHtml(p.direction)}</span></td>
-          <td>${escapeHtml(p.mode)}</td>
-          <td>${escapeHtml(p.provider)}</td>
-          <td class="td-path" title="${escapeHtml(p.local_path)}">${escapeHtml(p.local_path)}</td>
-          <td class="td-path" title="${escapeHtml(p.remote_path)}">${escapeHtml(p.remote_path)}</td>
-          <td class="td-actions">
-            <button class="btn btn-sm" data-sync="${p.id}">Sync</button>
-            <button class="btn btn-sm" data-toggle="${p.id}" data-enabled="${p.enabled}">${p.enabled ? 'Disable' : 'Enable'}</button>
-            <button class="btn btn-sm btn-danger" data-delete-pair="${p.id}">Delete</button>
-          </td>
-        </tr>
-      `).join('');
-
-      // Version pair select
+      if (!state.pairs.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">${t('empty.noPairs')}</td></tr>`; return; }
+      tbody.innerHTML = state.pairs.map(p => `<tr>
+        <td><strong>${escapeHtml(p.name)}</strong></td>
+        <td>${p.enabled ? `<span class="tag tag-green">${t('state.enabled')}</span>` : `<span class="tag tag-gray">${t('state.disabled')}</span>`}</td>
+        <td><span class="tag tag-blue">${escapeHtml(p.direction)}</span></td>
+        <td>${escapeHtml(p.mode)}</td>
+        <td>${escapeHtml(p.provider)}</td>
+        <td class="td-path" title="${escapeHtml(p.local_path)}">${escapeHtml(p.local_path)}</td>
+        <td class="td-path" title="${escapeHtml(p.remote_path)}">${escapeHtml(p.remote_path)}</td>
+        <td class="td-actions">
+          <button class="btn btn-sm" data-sync="${p.id}">${t('btn.sync')}</button>
+          <button class="btn btn-sm" data-toggle="${p.id}" data-enabled="${p.enabled}">${p.enabled ? t('btn.disable') : t('btn.enable')}</button>
+          <button class="btn btn-sm btn-danger" data-delete-pair="${p.id}">${t('btn.delete')}</button>
+        </td></tr>`).join('');
       $('version-pair').innerHTML = state.pairs.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     }
 
     /* ====== Render: Providers ====== */
     function renderProviders() {
       const tbody = $('providers-tbody');
-      if (!state.providers.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:32px">No providers configured</td></tr>';
-        return;
-      }
-      tbody.innerHTML = state.providers.map(p => `
-        <tr>
-          <td><strong>${escapeHtml(p.name)}</strong></td>
-          <td><span class="tag tag-blue">${escapeHtml(p.type)}</span></td>
-          <td class="td-path">${escapeHtml((p.params || {}).endpoint || '-')}</td>
-          <td class="td-actions">
-            <button class="btn btn-sm btn-danger" data-delete-provider="${p.id}">Delete</button>
-          </td>
-        </tr>
-      `).join('');
+      if (!state.providers.length) { tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:32px">${t('empty.noProviders')}</td></tr>`; return; }
+      tbody.innerHTML = state.providers.map(p => `<tr>
+        <td><strong>${escapeHtml(p.name)}</strong></td>
+        <td><span class="tag tag-blue">${escapeHtml(p.type)}</span></td>
+        <td class="td-path">${escapeHtml((p.params || {}).endpoint || '-')}</td>
+        <td class="td-actions"><button class="btn btn-sm btn-danger" data-delete-provider="${p.id}">${t('btn.delete')}</button></td>
+      </tr>`).join('');
     }
 
     /* ====== Render: Conflicts ====== */
     function renderConflicts() {
       const badge = $('conflict-badge');
-      if (state.conflicts.length > 0) {
-        badge.textContent = state.conflicts.length;
-        badge.classList.remove('hidden');
-      } else {
-        badge.classList.add('hidden');
-      }
-
+      if (state.conflicts.length > 0) { badge.textContent = state.conflicts.length; badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); }
       const tbody = $('conflicts-tbody');
-      if (!state.conflicts.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">No conflicts</td></tr>';
-        return;
-      }
+      if (!state.conflicts.length) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">${t('empty.noConflicts')}</td></tr>`; return; }
       tbody.innerHTML = state.conflicts.map(c => {
         const pairName = (state.pairs.find(p => p.id === c.sync_pair_id) || {}).name || c.sync_pair_id;
         return `<tr>
@@ -1013,22 +987,18 @@
           <td>${formatBytes(c.local_size)} / ${formatBytes(c.remote_size)}</td>
           <td style="font-size:12px">${formatTime(c.local_mtime)}<br>${formatTime(c.remote_mtime)}</td>
           <td class="td-actions">
-            <button class="btn btn-sm" data-resolve-conflict="${c.id}" data-strategy="local_wins">Local Wins</button>
-            <button class="btn btn-sm" data-resolve-conflict="${c.id}" data-strategy="remote_wins">Remote Wins</button>
-            <button class="btn btn-sm" data-resolve-conflict="${c.id}" data-strategy="latest_wins">Latest Wins</button>
-            <button class="btn btn-sm btn-danger" data-resolve-conflict="${c.id}" data-strategy="skip">Skip</button>
-          </td>
-        </tr>`;
+            <button class="btn btn-sm" data-resolve-conflict="${c.id}" data-strategy="local_wins">${t('btn.localWins')}</button>
+            <button class="btn btn-sm" data-resolve-conflict="${c.id}" data-strategy="remote_wins">${t('btn.remoteWins')}</button>
+            <button class="btn btn-sm" data-resolve-conflict="${c.id}" data-strategy="latest_wins">${t('btn.latestWins')}</button>
+            <button class="btn btn-sm btn-danger" data-resolve-conflict="${c.id}" data-strategy="skip">${t('btn.skip')}</button>
+          </td></tr>`;
       }).join('');
     }
 
     /* ====== Render: Versions ====== */
     function renderVersions() {
       const tbody = $('versions-tbody');
-      if (!state.versions.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">No version records</td></tr>';
-        return;
-      }
+      if (!state.versions.length) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">${t('empty.noVersions')}</td></tr>`; return; }
       tbody.innerHTML = state.versions.map(v => {
         const pairName = (state.pairs.find(p => p.id === v.sync_pair_id) || {}).name || v.sync_pair_id;
         return `<tr>
@@ -1047,21 +1017,11 @@
       try {
         const evt = JSON.parse(raw);
         return {
-          time: evt.time ? new Date(evt.time).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }) : shortTime(),
+          time: evt.time ? new Date(evt.time).toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }) : shortTime(),
           level: 'event',
           msg: `[${evt.type || '?'}] ${evt.pair_name ? evt.pair_name + ': ' : ''}${evt.path || ''} ${evt.message || ''} ${evt.task_type ? '(' + evt.task_type + ')' : ''} ${evt.pending != null ? 'pending=' + evt.pending : ''}`.trim()
         };
-      } catch {
-        return { time: shortTime(), level: 'info', msg: raw };
-      }
-    }
-
-    function classifyLogLevel(raw) {
-      const lower = raw.toLowerCase();
-      if (lower.includes('error') || lower.includes('failed') || lower.includes('fatal')) return 'error';
-      if (lower.includes('warn')) return 'warn';
-      if (lower.includes('debug')) return 'debug';
-      return 'info';
+      } catch { return { time: shortTime(), level: 'info', msg: raw }; }
     }
 
     function addLog(entry) {
@@ -1079,10 +1039,7 @@
       line.dataset.level = entry.level;
       line.innerHTML = `<span class="log-time">${escapeHtml(entry.time)}</span><span class="log-level ${entry.level}">${entry.level.toUpperCase()}</span><span class="log-msg">${escapeHtml(entry.msg)}</span>`;
       body.appendChild(line);
-      // Auto-scroll if near bottom
-      if (body.scrollHeight - body.scrollTop - body.clientHeight < 80) {
-        body.scrollTop = body.scrollHeight;
-      }
+      if (body.scrollHeight - body.scrollTop - body.clientHeight < 80) body.scrollTop = body.scrollHeight;
     }
 
     function matchesFilter(entry) {
@@ -1094,7 +1051,7 @@
     function renderAllLogs() {
       const body = $('log-body');
       body.innerHTML = '';
-      let visible = 0;
+      let vis = 0;
       for (const entry of logStore) {
         if (matchesFilter(entry)) {
           const line = document.createElement('div');
@@ -1102,11 +1059,11 @@
           line.dataset.level = entry.level;
           line.innerHTML = `<span class="log-time">${escapeHtml(entry.time)}</span><span class="log-level ${entry.level}">${entry.level.toUpperCase()}</span><span class="log-msg">${escapeHtml(entry.msg)}</span>`;
           body.appendChild(line);
-          visible++;
+          vis++;
         }
       }
       body.scrollTop = body.scrollHeight;
-      $('log-visible').textContent = visible;
+      $('log-visible').textContent = vis;
     }
 
     function updateLogStats() {
@@ -1116,7 +1073,6 @@
       $('log-visible').textContent = vis;
     }
 
-    // Log toolbar
     $('log-search').addEventListener('input', (e) => { logSearch = e.target.value; renderAllLogs(); });
     document.querySelectorAll('.log-filter-btn[data-level]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1128,39 +1084,25 @@
     });
     $('log-pause').addEventListener('click', () => {
       logPaused = !logPaused;
-      $('log-pause').textContent = logPaused ? 'Resume' : 'Pause';
+      $('log-pause').textContent = logPaused ? t('log.resume') : t('log.pause');
       $('log-pause').classList.toggle('active', logPaused);
       $('log-paused-label').classList.toggle('hidden', !logPaused);
     });
-    $('log-clear').addEventListener('click', () => {
-      logStore.length = 0;
-      $('log-body').innerHTML = '';
-      updateLogStats();
-    });
+    $('log-clear').addEventListener('click', () => { logStore.length = 0; $('log-body').innerHTML = ''; updateLogStats(); });
 
     /* ====== Load All ====== */
     async function loadAll() {
       const [status, pairs, providers, conflicts] = await Promise.all([
-        api('/api/v1/status'),
-        api('/api/v1/pairs'),
-        api('/api/v1/providers'),
-        api('/api/v1/conflicts?status=open')
+        api('/api/v1/status'), api('/api/v1/pairs'), api('/api/v1/providers'), api('/api/v1/conflicts?status=open')
       ]);
-      state.status = status;
-      state.pairs = pairs;
-      state.providers = providers;
-      state.conflicts = conflicts;
-      renderStatus();
-      renderPairs();
-      renderProviders();
-      renderConflicts();
+      state.status = status; state.pairs = pairs; state.providers = providers; state.conflicts = conflicts;
+      renderStatus(); renderPairs(); renderProviders(); renderConflicts();
     }
 
     async function loadVersions() {
       const data = Object.fromEntries(new FormData($('version-filter')).entries());
       if (!data.pair_id) return;
-      const query = new URLSearchParams(data);
-      state.versions = await api(`/api/v1/versions?${query.toString()}`);
+      state.versions = await api(`/api/v1/versions?${new URLSearchParams(data).toString()}`);
       renderVersions();
     }
 
@@ -1168,95 +1110,48 @@
     function connectEvents() {
       const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${scheme}://${location.host}/api/v1/events`);
-      ws.onopen = () => {
-        $('ws-dot').classList.add('on');
-        $('ws-state').textContent = 'Connected';
-      };
-      ws.onclose = () => {
-        $('ws-dot').classList.remove('on');
-        $('ws-state').textContent = 'Reconnecting...';
-        setTimeout(connectEvents, 2000);
-      };
-      ws.onmessage = (msg) => {
-        const entry = parseLogEvent(msg.data);
-        addLog(entry);
-        loadAll().catch(() => {});
-      };
+      ws.onopen = () => { $('ws-dot').classList.add('on'); $('ws-state').textContent = t('ws.connected'); };
+      ws.onclose = () => { $('ws-dot').classList.remove('on'); $('ws-state').textContent = t('ws.reconnecting'); setTimeout(connectEvents, 2000); };
+      ws.onmessage = (msg) => { addLog(parseLogEvent(msg.data)); loadAll().catch(() => {}); };
     }
 
     /* ====== Event Handlers ====== */
     $('sync-all').addEventListener('click', async () => {
-      try {
-        await api('/api/v1/sync', { method: 'POST', body: '{}' });
-        toast('Sync triggered for all pairs', 'success');
-      } catch (e) { toast(e.message, 'error'); }
+      try { await api('/api/v1/sync', { method: 'POST', body: '{}' }); toast(t('toast.syncAll'), 'success'); } catch (e) { toast(e.message, 'error'); }
     });
-
     $('refresh-btn').addEventListener('click', async () => {
-      try { await loadAll(); toast('Refreshed', 'success'); } catch (e) { toast(e.message, 'error'); }
+      try { await loadAll(); toast(t('toast.refreshed'), 'success'); } catch (e) { toast(e.message, 'error'); }
     });
 
     document.body.addEventListener('click', async (e) => {
       const el = e.target.closest('[data-sync],[data-toggle],[data-delete-pair],[data-delete-provider],[data-resolve-conflict]');
       if (!el) return;
       try {
-        if (el.dataset.sync) {
-          await api('/api/v1/sync', { method: 'POST', body: JSON.stringify({ pair_id: Number(el.dataset.sync) }) });
-          toast(`Sync triggered for pair #${el.dataset.sync}`, 'success');
-        }
-        if (el.dataset.toggle) {
-          await api(`/api/v1/pairs/${el.dataset.toggle}`, { method: 'PUT', body: JSON.stringify({ enabled: el.dataset.enabled !== 'true' }) });
-          toast('Pair updated', 'success');
-        }
-        if (el.dataset.deletePair) {
-          if (!confirm('Delete this sync pair?')) return;
-          await api(`/api/v1/pairs/${el.dataset.deletePair}`, { method: 'DELETE' });
-          toast('Pair deleted', 'success');
-        }
-        if (el.dataset.deleteProvider) {
-          if (!confirm('Delete this provider?')) return;
-          await api(`/api/v1/providers/${el.dataset.deleteProvider}`, { method: 'DELETE' });
-          toast('Provider deleted', 'success');
-        }
-        if (el.dataset.resolveConflict) {
-          await api(`/api/v1/conflicts/${el.dataset.resolveConflict}/resolve`, { method: 'POST', body: JSON.stringify({ strategy: el.dataset.strategy }) });
-          toast('Conflict resolved', 'success');
-        }
+        if (el.dataset.sync) { await api('/api/v1/sync', { method: 'POST', body: JSON.stringify({ pair_id: Number(el.dataset.sync) }) }); toast(t('toast.syncPair', { id: el.dataset.sync }), 'success'); }
+        if (el.dataset.toggle) { await api(`/api/v1/pairs/${el.dataset.toggle}`, { method: 'PUT', body: JSON.stringify({ enabled: el.dataset.enabled !== 'true' }) }); toast(t('toast.pairUpdated'), 'success'); }
+        if (el.dataset.deletePair) { if (!confirm(t('confirm.deletePair'))) return; await api(`/api/v1/pairs/${el.dataset.deletePair}`, { method: 'DELETE' }); toast(t('toast.pairDeleted'), 'success'); }
+        if (el.dataset.deleteProvider) { if (!confirm(t('confirm.deleteProvider'))) return; await api(`/api/v1/providers/${el.dataset.deleteProvider}`, { method: 'DELETE' }); toast(t('toast.providerDeleted'), 'success'); }
+        if (el.dataset.resolveConflict) { await api(`/api/v1/conflicts/${el.dataset.resolveConflict}/resolve`, { method: 'POST', body: JSON.stringify({ strategy: el.dataset.strategy }) }); toast(t('toast.conflictResolved'), 'success'); }
         await loadAll();
       } catch (err) { toast(err.message, 'error'); }
     });
 
     $('pair-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const data = Object.fromEntries(new FormData(e.target).entries());
-      try {
-        await api('/api/v1/pairs', { method: 'POST', body: JSON.stringify(data) });
-        e.target.reset();
-        toast('Sync pair created', 'success');
-        await loadAll();
-      } catch (err) { toast(err.message, 'error'); }
+      try { await api('/api/v1/pairs', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); e.target.reset(); toast(t('toast.pairCreated'), 'success'); await loadAll(); } catch (err) { toast(err.message, 'error'); }
     });
-
     $('provider-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = Object.fromEntries(new FormData(e.target).entries());
-      try {
-        data.params = JSON.parse(data.params || '{}');
-        await api('/api/v1/providers', { method: 'POST', body: JSON.stringify(data) });
-        toast('Provider created', 'success');
-        await loadAll();
-      } catch (err) { toast(err.message, 'error'); }
+      try { data.params = JSON.parse(data.params || '{}'); await api('/api/v1/providers', { method: 'POST', body: JSON.stringify(data) }); toast(t('toast.providerCreated'), 'success'); await loadAll(); } catch (err) { toast(err.message, 'error'); }
     });
-
-    $('version-filter').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      await loadVersions();
-    });
+    $('version-filter').addEventListener('submit', async (e) => { e.preventDefault(); await loadVersions(); });
 
     /* ====== Init ====== */
-    loadAll().catch(err => {
-      toast('Failed to load: ' + err.message, 'error');
-    });
+    // Restore language preference
+    document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
+    applyI18n();
+    loadAll().catch(err => toast(t('toast.loadFailed', { msg: err.message }), 'error'));
     connectEvents();
     setInterval(() => loadAll().catch(() => {}), 5000);
   </script>

@@ -5,3 +5,4 @@ bin/
 .env
 /every-sync
 .omx/
+~/.every-sync
