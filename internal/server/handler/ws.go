@@ -21,6 +21,7 @@ type Handler struct {
 	store  *store.Store
 	engine interface {
 		RefreshPairs() error
+		RefreshAllPairs() error
 		SyncPair(ctx context.Context, pairID int64, direction string) error
 		SyncAll(ctx context.Context) error
 		MaterializeVirtual(ctx context.Context, pairID int64, path string) error
@@ -32,6 +33,7 @@ type Handler struct {
 
 func New(s *store.Store, e interface {
 	RefreshPairs() error
+	RefreshAllPairs() error
 	SyncPair(ctx context.Context, pairID int64, direction string) error
 	SyncAll(ctx context.Context) error
 	MaterializeVirtual(ctx context.Context, pairID int64, path string) error
@@ -267,8 +269,10 @@ func (h *Handler) MaterializePairFile(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdatePairRequest struct {
+	Name             *string `json:"name"`
 	LocalPath        *string `json:"local_path"`
 	RemotePath       *string `json:"remote_path"`
+	Provider         *string `json:"provider"`
 	Mode             *string `json:"mode"`
 	Direction        *string `json:"direction"`
 	Enabled          *bool   `json:"enabled"`
@@ -301,11 +305,33 @@ func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Name != nil {
+		if strings.TrimSpace(*req.Name) == "" {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		pair.Name = *req.Name
+	}
 	if req.LocalPath != nil {
+		if strings.TrimSpace(*req.LocalPath) == "" {
+			writeError(w, http.StatusBadRequest, "local_path is required")
+			return
+		}
 		pair.LocalPath = *req.LocalPath
 	}
 	if req.RemotePath != nil {
+		if strings.TrimSpace(*req.RemotePath) == "" {
+			writeError(w, http.StatusBadRequest, "remote_path is required")
+			return
+		}
 		pair.RemotePath = *req.RemotePath
+	}
+	if req.Provider != nil {
+		if strings.TrimSpace(*req.Provider) == "" {
+			writeError(w, http.StatusBadRequest, "provider is required")
+			return
+		}
+		pair.Provider = *req.Provider
 	}
 	if req.Mode != nil {
 		pair.Mode = *req.Mode
@@ -339,11 +365,8 @@ func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Refresh engine pairs if enabled state changed
-	if req.Enabled != nil {
-		if err := h.engine.RefreshPairs(); err != nil {
-			logger.L.Error().Err(err).Msg("failed to refresh pairs after update")
-		}
+	if err := h.engine.RefreshPairs(); err != nil {
+		logger.L.Error().Err(err).Msg("failed to refresh pairs after update")
 	}
 
 	logger.Audit("pair.update").Int64("id", id).Bool("enabled", pair.Enabled).Msg("pair updated via API")
@@ -532,6 +555,10 @@ func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.UpdateProviderConfig(pc); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if err := h.engine.RefreshAllPairs(); err != nil {
+		logger.L.Error().Err(err).Msg("failed to refresh pairs after provider update")
 	}
 
 	logger.Audit("provider.update").Int64("id", id).Str("name", pc.Name).Msg("provider updated via API")

@@ -258,6 +258,7 @@ every-sync provider remove 1
 ### 3. 管理同步对
 
 同步对定义了本地目录与远程目录的映射关系。新建的同步对默认为禁用状态。
+已创建的同步对可以在 Web UI 的「同步对」页面点击「编辑」修改名称、本地路径、远程路径、存储源、方向、模式、冲突策略和 include/exclude 规则；如果同步对已启用，保存后后台会刷新运行时配置。
 
 ```bash
 # 添加同步对（默认禁用，--provider 填 provider 名称，非类型）
@@ -493,7 +494,18 @@ PUT /api/v1/pairs/{id}
 ```bash
 curl -X PUT http://localhost:10086/api/v1/pairs/1 \
   -H 'Content-Type: application/json' \
-  -d '{"direction": "both", "enabled": true}'
+  -d '{
+    "name": "docs",
+    "local_path": "/home/user/documents",
+    "remote_path": "/backup/docs",
+    "provider": "alist",
+    "mode": "mirror",
+    "direction": "both",
+    "enabled": true,
+    "include_patterns": "",
+    "exclude_patterns": "*.tmp,cache/**",
+    "conflict_strategy": "latest_wins"
+  }'
 ```
 
 #### Phase 3 接口
@@ -572,6 +584,8 @@ curl http://localhost:10086/api/v1/providers/1
 PUT /api/v1/providers/{id}
 ```
 
+也可以在 Web UI 的「存储源」页面点击「编辑」修改名称、类型和参数 JSON。保存后后台会刷新同步对运行时配置；如果改了存储源名称，引用它的同步对也需要改成新的名称。
+
 ```bash
 curl -X PUT http://localhost:10086/api/v1/providers/1 \
   -H 'Content-Type: application/json' \
@@ -596,11 +610,31 @@ curl -X DELETE http://localhost:10086/api/v1/providers/1
 
 ## 同步方向说明
 
+同步方向和同步模式是两个不同维度：
+
+- **同步方向**决定“变更从哪边流向哪边”。
+- **同步模式**决定“哪些文件参与同步，以及远端文件是否立即下载到本地”。
+
 | 方向 | 值 | 行为 | 场景 |
 |------|----|------|------|
 | 仅上传 | `up` | 本地 → 远程 | 本地文件备份到云盘 |
 | 仅下载 | `down` | 远程 → 本地 | 从云盘拉取文件到本地 |
 | 双向 | `both` | 双向同步 | 多设备文件同步 |
+
+## 同步模式说明
+
+| 模式 | 值 | 行为 | 适合场景 |
+|------|----|------|----------|
+| 镜像 | `mirror` | 同步所有未被规则排除的文件；文件内容会真实复制到目标端。方向为 `both` 时两端尽量保持一致；方向为 `up`/`down` 时只按单方向复制和删除。 | 常规备份、多设备完整同步 |
+| 选择性同步 | `selective` | 在 `mirror` 的基础上应用 `include_patterns` 和 `exclude_patterns`。有 include 时，只同步命中 include 的文件；exclude 永远优先排除。 | 只同步文档、排除缓存/临时文件 |
+| 虚拟文件 | `virtual` | 远端文件先写入索引，不自动下载内容到本地；需要文件时通过 Web UI/API/CLI materialize 单个文件。本地已有或本地新增文件仍可按方向上传/处理。 | 云端资料很多、本地磁盘有限、按需取用 |
+
+几个容易混淆的点：
+
+- `mode` 不是方向。`mirror + up` 表示“把本地镜像上传到远端”；`mirror + down` 表示“把远端镜像下载到本地”；`mirror + both` 才是双向镜像。
+- `selective` 不等于单向同步，它只是过滤文件集合；具体上传、下载还是双向由 `direction` 决定。
+- `virtual` 的核心是不自动下载远端内容。通常配 `direction: down` 用来浏览/索引远端文件，再按需 materialize；配 `both` 时，本地新增文件仍会上传到远端，但远端新增文件仍先保持 virtual。
+- 删除传播也受方向影响：`up` 会把本地删除同步到远端，`down` 会把远端删除同步到本地，`both` 会根据双方状态和历史索引判断。
 
 ## 开发
 

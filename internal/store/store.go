@@ -269,9 +269,9 @@ func (s *Store) UpdateSyncPair(pair *SyncPair) error {
 		pair.ConflictStrategy = "latest_wins"
 	}
 	_, err := s.db.Exec(
-		`UPDATE sync_pairs SET local_path=?, remote_path=?, provider=?, mode=?, direction=?, enabled=?, schedule=?, include_patterns=?, exclude_patterns=?, conflict_strategy=?, updated_at=CURRENT_TIMESTAMP
+		`UPDATE sync_pairs SET name=?, local_path=?, remote_path=?, provider=?, mode=?, direction=?, enabled=?, schedule=?, include_patterns=?, exclude_patterns=?, conflict_strategy=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id = ?`,
-		pair.LocalPath, pair.RemotePath, pair.Provider, pair.Mode, pair.Direction, pair.Enabled, pair.Schedule,
+		pair.Name, pair.LocalPath, pair.RemotePath, pair.Provider, pair.Mode, pair.Direction, pair.Enabled, pair.Schedule,
 		pair.IncludePatterns, pair.ExcludePatterns, pair.ConflictStrategy, pair.ID)
 	return err
 }

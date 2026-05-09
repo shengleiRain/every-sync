@@ -498,7 +498,7 @@
         <!-- Sync Pairs -->
         <section id="pairs" class="hidden">
           <div class="card" style="margin-bottom:16px">
-            <div class="card-header"><span class="card-title" data-i18n="card.newPair">New Sync Pair</span></div>
+            <div class="card-header"><span class="card-title" id="pair-form-title" data-i18n="card.newPair">New Sync Pair</span></div>
             <form id="pair-form" class="form-grid">
               <div class="form-group">
                 <label class="form-label" data-i18n="form.name">Name</label>
@@ -551,7 +551,10 @@
                 <input class="form-input" name="exclude_patterns" placeholder="*.tmp, cache/**">
               </div>
               <div class="form-group full">
-                <button class="btn btn-primary" type="submit" data-i18n="action.createPair">Create Sync Pair</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-primary" id="pair-submit" type="submit" data-i18n="action.createPair">Create Sync Pair</button>
+                  <button class="btn hidden" id="pair-cancel" type="button" data-i18n="action.cancel">Cancel</button>
+                </div>
               </div>
             </form>
           </div>
@@ -568,7 +571,7 @@
         <!-- Providers -->
         <section id="providers" class="hidden">
           <div class="card" style="margin-bottom:16px">
-            <div class="card-header"><span class="card-title" data-i18n="card.newProvider">New Provider</span></div>
+            <div class="card-header"><span class="card-title" id="provider-form-title" data-i18n="card.newProvider">New Provider</span></div>
             <form id="provider-form" class="form-grid">
               <div class="form-group">
                 <label class="form-label" data-i18n="form.name">Name</label>
@@ -587,7 +590,10 @@
 }</textarea>
               </div>
               <div class="form-group full">
-                <button class="btn btn-primary" type="submit" data-i18n="action.createProvider">Create Provider</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-primary" id="provider-submit" type="submit" data-i18n="action.createProvider">Create Provider</button>
+                  <button class="btn hidden" id="provider-cancel" type="button" data-i18n="action.cancel">Cancel</button>
+                </div>
               </div>
             </form>
           </div>
@@ -664,6 +670,9 @@
         'action.syncAll': '全部同步',
         'action.createPair': '创建同步对',
         'action.createProvider': '创建存储源',
+        'action.savePair': '保存同步对',
+        'action.saveProvider': '保存存储源',
+        'action.cancel': '取消',
         'action.search': '搜索',
         'metric.engine': '引擎状态',
         'metric.pairs': '同步对',
@@ -673,6 +682,8 @@
         'card.activePairs': '活跃同步对',
         'card.newPair': '新建同步对',
         'card.newProvider': '新建存储源',
+        'card.editPair': '编辑同步对',
+        'card.editProvider': '编辑存储源',
         'form.name': '名称',
         'form.provider': '存储源',
         'form.type': '类型',
@@ -713,6 +724,7 @@
         'state.enabled': '已启用',
         'state.disabled': '已禁用',
         'btn.sync': '同步',
+        'btn.edit': '编辑',
         'btn.enable': '启用',
         'btn.disable': '禁用',
         'btn.delete': '删除',
@@ -748,6 +760,7 @@
         'toast.pairUpdated': '同步对已更新',
         'toast.pairDeleted': '同步对已删除',
         'toast.providerCreated': '存储源已创建',
+        'toast.providerUpdated': '存储源已更新',
         'toast.providerDeleted': '存储源已删除',
         'toast.conflictResolved': '冲突已解决',
         'toast.refreshed': '已刷新',
@@ -772,6 +785,9 @@
         'action.syncAll': 'Sync All',
         'action.createPair': 'Create Sync Pair',
         'action.createProvider': 'Create Provider',
+        'action.savePair': 'Save Sync Pair',
+        'action.saveProvider': 'Save Provider',
+        'action.cancel': 'Cancel',
         'action.search': 'Search',
         'metric.engine': 'Engine Status',
         'metric.pairs': 'Sync Pairs',
@@ -781,6 +797,8 @@
         'card.activePairs': 'Active Pairs',
         'card.newPair': 'New Sync Pair',
         'card.newProvider': 'New Provider',
+        'card.editPair': 'Edit Sync Pair',
+        'card.editProvider': 'Edit Provider',
         'form.name': 'Name',
         'form.provider': 'Provider',
         'form.type': 'Type',
@@ -821,6 +839,7 @@
         'state.enabled': 'Enabled',
         'state.disabled': 'Disabled',
         'btn.sync': 'Sync',
+        'btn.edit': 'Edit',
         'btn.enable': 'Enable',
         'btn.disable': 'Disable',
         'btn.delete': 'Delete',
@@ -856,6 +875,7 @@
         'toast.pairUpdated': 'Pair updated',
         'toast.pairDeleted': 'Pair deleted',
         'toast.providerCreated': 'Provider created',
+        'toast.providerUpdated': 'Provider updated',
         'toast.providerDeleted': 'Provider deleted',
         'toast.conflictResolved': 'Conflict resolved',
         'toast.refreshed': 'Refreshed',
@@ -899,6 +919,8 @@
     /* ====== State ====== */
     const state = { status: null, pairs: [], providers: [], conflicts: [], versions: [] };
     const logStore = [];
+    let editingPairId = null;
+    let editingProviderId = null;
     let logPaused = false;
     let logFilter = 'all';
     let logSearch = '';
@@ -932,6 +954,24 @@
     function formatBytes(b) { if (!b || b === 0) return '0 B'; const k = 1024, sizes = ['B','KB','MB','GB','TB']; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]; }
     function formatTime(ts) { if (!ts) return '-'; try { return new Date(ts).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return ts; } }
     function shortTime() { return new Date().toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+    function setSelectValue(form, name, value) { const el = form.elements[name]; if (el) el.value = value ?? ''; }
+    function setFormMode(kind, id) {
+      const isPair = kind === 'pair';
+      const form = $(isPair ? 'pair-form' : 'provider-form');
+      const title = $(isPair ? 'pair-form-title' : 'provider-form-title');
+      const submit = $(isPair ? 'pair-submit' : 'provider-submit');
+      const cancel = $(isPair ? 'pair-cancel' : 'provider-cancel');
+      if (isPair) editingPairId = id; else editingProviderId = id;
+      const editing = id != null;
+      title.dataset.i18n = isPair ? (editing ? 'card.editPair' : 'card.newPair') : (editing ? 'card.editProvider' : 'card.newProvider');
+      submit.dataset.i18n = isPair ? (editing ? 'action.savePair' : 'action.createPair') : (editing ? 'action.saveProvider' : 'action.createProvider');
+      title.textContent = t(title.dataset.i18n);
+      submit.textContent = t(submit.dataset.i18n);
+      cancel.classList.toggle('hidden', !editing);
+      form.dataset.editId = editing ? String(id) : '';
+    }
+    function resetPairForm() { $('pair-form').reset(); setFormMode('pair', null); }
+    function resetProviderForm() { $('provider-form').reset(); setFormMode('provider', null); }
 
     /* ====== Navigation ====== */
     const tabTitles = { dashboard: 'nav.dashboard', logs: 'nav.logs', pairs: 'nav.pairs', providers: 'nav.providers', conflicts: 'nav.conflicts', versions: 'nav.versions' };
@@ -983,9 +1023,11 @@
     /* ====== Render: Pairs ====== */
     function renderPairs() {
       const provSelect = $('pair-provider-select');
+      const selectedProvider = provSelect.value;
       provSelect.innerHTML = state.providers.length
         ? state.providers.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('')
         : `<option value="">${t('option.noProviders')}</option>`;
+      if (selectedProvider) provSelect.value = selectedProvider;
       const tbody = $('pairs-tbody');
       if (!state.pairs.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">${t('empty.noPairs')}</td></tr>`; return; }
       tbody.innerHTML = state.pairs.map(p => `<tr>
@@ -998,6 +1040,7 @@
         <td class="td-path" title="${escapeHtml(p.remote_path)}">${escapeHtml(p.remote_path)}</td>
         <td class="td-actions">
           <button class="btn btn-sm" data-sync="${p.id}">${t('btn.sync')}</button>
+          <button class="btn btn-sm" data-edit-pair="${p.id}">${t('btn.edit')}</button>
           <button class="btn btn-sm" data-toggle="${p.id}" data-enabled="${p.enabled}">${p.enabled ? t('btn.disable') : t('btn.enable')}</button>
           <button class="btn btn-sm btn-danger" data-delete-pair="${p.id}">${t('btn.delete')}</button>
         </td></tr>`).join('');
@@ -1012,7 +1055,10 @@
         <td><strong>${escapeHtml(p.name)}</strong></td>
         <td><span class="tag tag-blue">${escapeHtml(p.type)}</span></td>
         <td class="td-path">${escapeHtml((p.params || {}).endpoint || '-')}</td>
-        <td class="td-actions"><button class="btn btn-sm btn-danger" data-delete-provider="${p.id}">${t('btn.delete')}</button></td>
+        <td class="td-actions">
+          <button class="btn btn-sm" data-edit-provider="${p.id}">${t('btn.edit')}</button>
+          <button class="btn btn-sm btn-danger" data-delete-provider="${p.id}">${t('btn.delete')}</button>
+        </td>
       </tr>`).join('');
     }
 
@@ -1167,13 +1213,46 @@
       try { await loadAll(); toast(t('toast.refreshed'), 'success'); } catch (e) { toast(e.message, 'error'); }
     });
 
+    function editPair(id) {
+      const pair = state.pairs.find(p => Number(p.id) === Number(id));
+      if (!pair) return;
+      const form = $('pair-form');
+      form.elements.name.value = pair.name || '';
+      setSelectValue(form, 'provider', pair.provider || '');
+      form.elements.local_path.value = pair.local_path || '';
+      form.elements.remote_path.value = pair.remote_path || '';
+      setSelectValue(form, 'direction', pair.direction || 'both');
+      setSelectValue(form, 'mode', pair.mode || 'mirror');
+      setSelectValue(form, 'conflict_strategy', pair.conflict_strategy || 'latest_wins');
+      form.elements.include_patterns.value = pair.include_patterns || '';
+      form.elements.exclude_patterns.value = pair.exclude_patterns || '';
+      setFormMode('pair', pair.id);
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function editProvider(id) {
+      const provider = state.providers.find(p => Number(p.id) === Number(id));
+      if (!provider) return;
+      const form = $('provider-form');
+      form.elements.name.value = provider.name || '';
+      setSelectValue(form, 'type', provider.type || 'webdav');
+      form.elements.params.value = JSON.stringify(provider.params || {}, null, 2);
+      setFormMode('provider', provider.id);
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    $('pair-cancel').addEventListener('click', resetPairForm);
+    $('provider-cancel').addEventListener('click', resetProviderForm);
+
     document.body.addEventListener('click', async (e) => {
-      const el = e.target.closest('[data-sync],[data-toggle],[data-delete-pair],[data-delete-provider],[data-resolve-conflict]');
+      const el = e.target.closest('[data-sync],[data-edit-pair],[data-toggle],[data-delete-pair],[data-edit-provider],[data-delete-provider],[data-resolve-conflict]');
       if (!el) return;
       try {
         if (el.dataset.sync) { await api('/api/v1/sync', { method: 'POST', body: JSON.stringify({ pair_id: Number(el.dataset.sync) }) }); toast(t('toast.syncPair', { id: el.dataset.sync }), 'success'); }
+        if (el.dataset.editPair) { editPair(el.dataset.editPair); return; }
         if (el.dataset.toggle) { await api(`/api/v1/pairs/${el.dataset.toggle}`, { method: 'PUT', body: JSON.stringify({ enabled: el.dataset.enabled !== 'true' }) }); toast(t('toast.pairUpdated'), 'success'); }
         if (el.dataset.deletePair) { if (!confirm(t('confirm.deletePair'))) return; await api(`/api/v1/pairs/${el.dataset.deletePair}`, { method: 'DELETE' }); toast(t('toast.pairDeleted'), 'success'); }
+        if (el.dataset.editProvider) { editProvider(el.dataset.editProvider); return; }
         if (el.dataset.deleteProvider) { if (!confirm(t('confirm.deleteProvider'))) return; await api(`/api/v1/providers/${el.dataset.deleteProvider}`, { method: 'DELETE' }); toast(t('toast.providerDeleted'), 'success'); }
         if (el.dataset.resolveConflict) { await api(`/api/v1/conflicts/${el.dataset.resolveConflict}/resolve`, { method: 'POST', body: JSON.stringify({ strategy: el.dataset.strategy }) }); toast(t('toast.conflictResolved'), 'success'); }
         await loadAll();
@@ -1182,12 +1261,36 @@
 
     $('pair-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      try { await api('/api/v1/pairs', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); e.target.reset(); toast(t('toast.pairCreated'), 'success'); await loadAll(); } catch (err) { toast(err.message, 'error'); }
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      const editId = e.target.dataset.editId;
+      try {
+        if (editId) {
+          await api(`/api/v1/pairs/${editId}`, { method: 'PUT', body: JSON.stringify(data) });
+          toast(t('toast.pairUpdated'), 'success');
+        } else {
+          await api('/api/v1/pairs', { method: 'POST', body: JSON.stringify(data) });
+          toast(t('toast.pairCreated'), 'success');
+        }
+        resetPairForm();
+        await loadAll();
+      } catch (err) { toast(err.message, 'error'); }
     });
     $('provider-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = Object.fromEntries(new FormData(e.target).entries());
-      try { data.params = JSON.parse(data.params || '{}'); await api('/api/v1/providers', { method: 'POST', body: JSON.stringify(data) }); toast(t('toast.providerCreated'), 'success'); await loadAll(); } catch (err) { toast(err.message, 'error'); }
+      const editId = e.target.dataset.editId;
+      try {
+        data.params = JSON.parse(data.params || '{}');
+        if (editId) {
+          await api(`/api/v1/providers/${editId}`, { method: 'PUT', body: JSON.stringify(data) });
+          toast(t('toast.providerUpdated'), 'success');
+        } else {
+          await api('/api/v1/providers', { method: 'POST', body: JSON.stringify(data) });
+          toast(t('toast.providerCreated'), 'success');
+        }
+        resetProviderForm();
+        await loadAll();
+      } catch (err) { toast(err.message, 'error'); }
     });
     $('version-filter').addEventListener('submit', async (e) => { e.preventDefault(); await loadVersions(); });
 

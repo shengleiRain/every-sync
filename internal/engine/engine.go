@@ -208,14 +208,28 @@ func (e *Engine) UnregisterPair(pairID int64) {
 	if p, ok := e.pairs[pairID]; ok {
 		logger.L.Info().Int64("pair_id", pairID).Str("name", p.Name).Msg("pair unregistered")
 	}
+	local := e.locals[pairID]
+	remote := e.remotes[pairID]
 	delete(e.pairs, pairID)
 	delete(e.locals, pairID)
 	delete(e.remotes, pairID)
+	closeProvider(local)
+	closeProvider(remote)
 	e.broadcast(Event{Type: "pair_unregistered", PairID: pairID})
 }
 
-// RefreshPairs reloads pairs from DB, registers new enabled ones, unregisters disabled ones.
+// RefreshPairs reloads pairs from DB and updates changed pair registrations.
 func (e *Engine) RefreshPairs() error {
+	return e.refreshPairs(false)
+}
+
+// RefreshAllPairs reloads pairs from DB and recreates providers for enabled pairs.
+func (e *Engine) RefreshAllPairs() error {
+	return e.refreshPairs(true)
+}
+
+// refreshPairs reloads pairs from DB, registers enabled pairs, and unregisters disabled ones.
+func (e *Engine) refreshPairs(force bool) error {
 	if e.registrar == nil {
 		return nil
 	}
@@ -235,16 +249,24 @@ func (e *Engine) RefreshPairs() error {
 	for _, pair := range pairs {
 		if pair.Enabled {
 			e.mu.RLock()
-			_, exists := e.pairs[pair.ID]
+			current, exists := e.pairs[pair.ID]
 			e.mu.RUnlock()
 
-			if !exists && e.registrar != nil {
+			if exists && !force && syncPairRuntimeEqual(current, pair) {
+				continue
+			}
+
+			if e.registrar != nil {
 				local, remote, err := e.registrar(pair)
 				if err != nil {
 					logger.L.Error().Err(err).Int64("pair_id", pair.ID).Str("name", pair.Name).Msg("failed to create providers for pair")
 					continue
 				}
-				e.RegisterPair(pair, local, remote)
+				if exists {
+					e.replacePair(pair, local, remote)
+				} else {
+					e.RegisterPair(pair, local, remote)
+				}
 			}
 		} else {
 			e.mu.RLock()
@@ -258,6 +280,46 @@ func (e *Engine) RefreshPairs() error {
 	}
 
 	return nil
+}
+
+func (e *Engine) replacePair(pair *store.SyncPair, local, remote provider.Provider) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	oldLocal := e.locals[pair.ID]
+	oldRemote := e.remotes[pair.ID]
+	closeProvider(oldLocal)
+	closeProvider(oldRemote)
+	e.pairs[pair.ID] = pair
+	e.locals[pair.ID] = local
+	e.remotes[pair.ID] = remote
+	logger.L.Info().Int64("pair_id", pair.ID).Str("name", pair.Name).Msg("pair refreshed")
+	e.broadcast(Event{Type: "pair_refreshed", PairID: pair.ID, PairName: pair.Name})
+	if e.ctx != nil {
+		e.startPairWatcherLocked(pair.ID, pair, local)
+	}
+}
+
+func closeProvider(p provider.Provider) {
+	if p != nil {
+		_ = p.Close()
+	}
+}
+
+func syncPairRuntimeEqual(a, b *store.SyncPair) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Name == b.Name &&
+		a.LocalPath == b.LocalPath &&
+		a.RemotePath == b.RemotePath &&
+		a.Provider == b.Provider &&
+		a.Mode == b.Mode &&
+		a.Direction == b.Direction &&
+		a.Enabled == b.Enabled &&
+		a.Schedule == b.Schedule &&
+		a.IncludePatterns == b.IncludePatterns &&
+		a.ExcludePatterns == b.ExcludePatterns &&
+		a.ConflictStrategy == b.ConflictStrategy
 }
 
 // Start launches worker goroutines and the result processor.

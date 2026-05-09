@@ -6,3 +6,4 @@ bin/
 /every-sync
 .omx/
 ~/.every-sync
+internal/test/integration/

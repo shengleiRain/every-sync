@@ -82,11 +82,19 @@ func TestStore_SyncPairCRUD(t *testing.T) {
 	}
 
 	// Update
+	got.Name = "updated"
+	got.Provider = "alist"
 	got.Direction = "up"
 	if err := s.UpdateSyncPair(got); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	updated, _ := s.GetSyncPair(pair.ID)
+	if updated.Name != "updated" {
+		t.Fatalf("name: got %q, want %q", updated.Name, "updated")
+	}
+	if updated.Provider != "alist" {
+		t.Fatalf("provider: got %q, want %q", updated.Provider, "alist")
+	}
 	if updated.Direction != "up" {
 		t.Fatalf("direction: got %q, want %q", updated.Direction, "up")
 	}
