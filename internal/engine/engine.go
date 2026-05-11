@@ -571,6 +571,55 @@ func (e *Engine) ResolveConflict(ctx context.Context, conflictID int64, strategy
 		if err := e.executeTask(ctx, tasks[0]); err != nil {
 			return err
 		}
+	case "keep_both":
+		// Record both versions in file_versions for history.
+		e.recordProviderVersion(ctx, pair.ID, conflict.Path, "local", local)
+		e.recordProviderVersion(ctx, pair.ID, conflict.Path, "remote", remote)
+		// Apply the newer version to both sides.
+		localMeta, localErr := local.Stat(ctx, conflict.Path)
+		remoteMeta, remoteErr := remote.Stat(ctx, conflict.Path)
+		if localErr != nil || remoteErr != nil {
+			return fmt.Errorf("stat conflict sides: local=%v remote=%v", localErr, remoteErr)
+		}
+		if localMeta.ModTime.After(remoteMeta.ModTime) {
+			if err := e.doUpload(ctx, pair, local, remote, conflict.Path); err != nil {
+				return err
+			}
+		} else {
+			if err := e.doDownload(ctx, pair, local, remote, conflict.Path); err != nil {
+				return err
+			}
+		}
+	case "rename":
+		// Determine loser and winner by ModTime, rename the loser with a
+		// conflict suffix, and apply the winner to both sides.
+		localMeta, localErr := local.Stat(ctx, conflict.Path)
+		remoteMeta, remoteErr := remote.Stat(ctx, conflict.Path)
+		if localErr != nil || remoteErr != nil {
+			return fmt.Errorf("stat conflict sides: local=%v remote=%v", localErr, remoteErr)
+		}
+		ext := path.Ext(conflict.Path)
+		base := strings.TrimSuffix(conflict.Path, ext)
+		dateStr := time.Now().Format("2006-01-02")
+		renamedPath := fmt.Sprintf("%s (冲突副本 %s)%s", base, dateStr, ext)
+
+		if localMeta.ModTime.After(remoteMeta.ModTime) {
+			// Remote is loser: rename remote file, upload local version.
+			if err := remote.MoveFile(ctx, conflict.Path, renamedPath); err != nil {
+				return fmt.Errorf("rename remote loser: %w", err)
+			}
+			if err := e.doUpload(ctx, pair, local, remote, conflict.Path); err != nil {
+				return err
+			}
+		} else {
+			// Local is loser: rename local file, download remote version.
+			if err := local.MoveFile(ctx, conflict.Path, renamedPath); err != nil {
+				return fmt.Errorf("rename local loser: %w", err)
+			}
+			if err := e.doDownload(ctx, pair, local, remote, conflict.Path); err != nil {
+				return err
+			}
+		}
 	case "skip", "manual":
 		resolution = "skip"
 	}
@@ -935,7 +984,7 @@ func (e *Engine) updateEntryHash(pairID int64, filePath, side, hash string, meta
 
 func conflictStrategyTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta) []SyncTask {
 	switch normalizeConflictStrategy(pair.ConflictStrategy) {
-	case "manual":
+	case "manual", "keep_both", "rename":
 		return []SyncTask{newTask(TaskConflict, pair.ID, key)}
 	case "local_wins":
 		return []SyncTask{newTask(TaskUpload, pair.ID, key)}
@@ -1149,7 +1198,7 @@ func NormalizeSelectedFolders(folders []string) []string {
 
 func normalizeConflictStrategy(strategy string) string {
 	switch strings.ToLower(strings.TrimSpace(strategy)) {
-	case "manual", "local_wins", "remote_wins", "latest_wins":
+	case "manual", "local_wins", "remote_wins", "latest_wins", "keep_both", "rename":
 		return strings.ToLower(strings.TrimSpace(strategy))
 	default:
 		return "latest_wins"

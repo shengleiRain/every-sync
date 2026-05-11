@@ -2038,3 +2038,215 @@ func TestConflict_FirstSyncDifferentContent(t *testing.T) {
 	assertFileContent(t, localDir, "diff.txt", "local-content")
 	assertFileContent(t, remoteDir, "diff.txt", "remote-content")
 }
+
+// --- keep_both and rename conflict strategy tests ---
+
+// setupConflictPair is a test helper that creates a sync pair with manual
+// conflict strategy, writes different files on both sides with controlled
+// mtimes, runs a sync to record the conflict, and returns the engine, store,
+// pair, and the recorded conflict.
+func setupConflictPair(t *testing.T, localNewer bool) (*Engine, *store.Store, *store.SyncPair, string, string) {
+	t.Helper()
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "conflict.txt", "local-content")
+	writeTestFile(t, remoteDir, "conflict.txt", "remote-content")
+
+	now := time.Now()
+	localMTime := now.Add(2 * time.Second)
+	remoteMTime := now.Add(1 * time.Second)
+	if !localNewer {
+		localMTime, remoteMTime = remoteMTime, localMTime
+	}
+	if err := os.Chtimes(filepath.Join(localDir, "conflict.txt"), now, localMTime); err != nil {
+		t.Fatalf("chtimes local: %v", err)
+	}
+	if err := os.Chtimes(filepath.Join(remoteDir, "conflict.txt"), now, remoteMTime); err != nil {
+		t.Fatalf("chtimes remote: %v", err)
+	}
+
+	pair := &store.SyncPair{
+		Name:             "test-conflict",
+		LocalPath:        localDir,
+		RemotePath:       remoteDir,
+		Provider:         "local",
+		Mode:             "mirror",
+		Direction:        "both",
+		Enabled:          true,
+		ConflictStrategy: "manual",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("conflicts = %d, want 1", len(conflicts))
+	}
+	return eng, s, pair, localDir, remoteDir
+}
+
+func TestConflictStrategy_KeepBoth_LocalNewer(t *testing.T) {
+	eng, s, pair, localDir, remoteDir := setupConflictPair(t, true)
+
+	conflicts, _ := s.ListConflicts(pair.ID, "open")
+	if err := eng.ResolveConflict(context.Background(), conflicts[0].ID, "keep_both"); err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+
+	// Local is newer, so local version wins — both sides should have local content.
+	assertFileContent(t, localDir, "conflict.txt", "local-content")
+	assertFileContent(t, remoteDir, "conflict.txt", "local-content")
+
+	// Conflict should be resolved.
+	openConflicts, _ := s.ListConflicts(pair.ID, "open")
+	if len(openConflicts) != 0 {
+		t.Fatalf("open conflicts = %d, want 0", len(openConflicts))
+	}
+
+	// Both versions should be recorded in file_versions.
+	versions, err := s.ListFileVersions(pair.ID, "/conflict.txt")
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) < 2 {
+		t.Fatalf("versions = %d, want at least 2", len(versions))
+	}
+	sources := make(map[string]bool)
+	for _, v := range versions {
+		sources[v.Source] = true
+	}
+	if !sources["local"] || !sources["remote"] {
+		t.Fatalf("expected both local and remote versions, got sources: %v", sources)
+	}
+
+	// File entry should be synced.
+	entry, err := s.GetFileEntry(pair.ID, "/conflict.txt")
+	if err != nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry == nil || entry.SyncState != "synced" {
+		t.Fatalf("entry sync state = %q, want synced", entry.SyncState)
+	}
+}
+
+func TestConflictStrategy_KeepBoth_RemoteNewer(t *testing.T) {
+	eng, s, pair, localDir, remoteDir := setupConflictPair(t, false)
+
+	conflicts, _ := s.ListConflicts(pair.ID, "open")
+	if err := eng.ResolveConflict(context.Background(), conflicts[0].ID, "keep_both"); err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+
+	// Remote is newer, so remote version wins — both sides should have remote content.
+	assertFileContent(t, localDir, "conflict.txt", "remote-content")
+	assertFileContent(t, remoteDir, "conflict.txt", "remote-content")
+
+	// Conflict should be resolved.
+	openConflicts, _ := s.ListConflicts(pair.ID, "open")
+	if len(openConflicts) != 0 {
+		t.Fatalf("open conflicts = %d, want 0", len(openConflicts))
+	}
+
+	// Both versions should be recorded in file_versions.
+	versions, err := s.ListFileVersions(pair.ID, "/conflict.txt")
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) < 2 {
+		t.Fatalf("versions = %d, want at least 2", len(versions))
+	}
+}
+
+func TestConflictStrategy_Rename_LocalNewer(t *testing.T) {
+	eng, s, pair, localDir, remoteDir := setupConflictPair(t, true)
+
+	conflicts, _ := s.ListConflicts(pair.ID, "open")
+	if err := eng.ResolveConflict(context.Background(), conflicts[0].ID, "rename"); err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+
+	// Local is newer → remote is the loser and gets renamed.
+	// Both sides should now have the local content at the original path.
+	assertFileContent(t, localDir, "conflict.txt", "local-content")
+	assertFileContent(t, remoteDir, "conflict.txt", "local-content")
+
+	// The remote loser should exist as a renamed file.
+	// Find the renamed file by listing remote directory.
+	entries, err := os.ReadDir(remoteDir)
+	if err != nil {
+		t.Fatalf("read remote dir: %v", err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "冲突副本") && strings.HasPrefix(e.Name(), "conflict") {
+			found = true
+			// Verify the renamed file has the original remote content.
+			content, err := os.ReadFile(filepath.Join(remoteDir, e.Name()))
+			if err != nil {
+				t.Fatalf("read renamed file: %v", err)
+			}
+			if string(content) != "remote-content" {
+				t.Fatalf("renamed file content = %q, want %q", string(content), "remote-content")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected to find a renamed conflict copy on remote, but did not")
+	}
+
+	// Conflict should be resolved.
+	openConflicts, _ := s.ListConflicts(pair.ID, "open")
+	if len(openConflicts) != 0 {
+		t.Fatalf("open conflicts = %d, want 0", len(openConflicts))
+	}
+}
+
+func TestConflictStrategy_Rename_RemoteNewer(t *testing.T) {
+	eng, s, pair, localDir, remoteDir := setupConflictPair(t, false)
+
+	conflicts, _ := s.ListConflicts(pair.ID, "open")
+	if err := eng.ResolveConflict(context.Background(), conflicts[0].ID, "rename"); err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+
+	// Remote is newer → local is the loser and gets renamed.
+	// Both sides should now have the remote content at the original path.
+	assertFileContent(t, localDir, "conflict.txt", "remote-content")
+	assertFileContent(t, remoteDir, "conflict.txt", "remote-content")
+
+	// The local loser should exist as a renamed file.
+	entries, err := os.ReadDir(localDir)
+	if err != nil {
+		t.Fatalf("read local dir: %v", err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "冲突副本") && strings.HasPrefix(e.Name(), "conflict") {
+			found = true
+			content, err := os.ReadFile(filepath.Join(localDir, e.Name()))
+			if err != nil {
+				t.Fatalf("read renamed file: %v", err)
+			}
+			if string(content) != "local-content" {
+				t.Fatalf("renamed file content = %q, want %q", string(content), "local-content")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected to find a renamed conflict copy on local, but did not")
+	}
+
+	// Conflict should be resolved.
+	openConflicts, _ := s.ListConflicts(pair.ID, "open")
+	if len(openConflicts) != 0 {
+		t.Fatalf("open conflicts = %d, want 0", len(openConflicts))
+	}
+}
