@@ -33,13 +33,15 @@ const (
 type TaskType string
 
 const (
-	TaskUpload   TaskType = "upload"
-	TaskDownload TaskType = "download"
-	TaskDelete   TaskType = "delete"
-	TaskMove     TaskType = "move"
-	TaskHash     TaskType = "hash"
-	TaskVirtual  TaskType = "virtual"
-	TaskConflict TaskType = "conflict"
+	TaskUpload    TaskType = "upload"
+	TaskDownload  TaskType = "download"
+	TaskDelete    TaskType = "delete"
+	TaskMove      TaskType = "move"
+	TaskHash      TaskType = "hash"
+	TaskVirtual   TaskType = "virtual"
+	TaskConflict  TaskType = "conflict"
+	TaskCreateDir TaskType = "create_dir"
+	TaskDeleteDir TaskType = "delete_dir"
 )
 
 const partialSuffix = ".every-sync.part"
@@ -670,9 +672,8 @@ func (e *Engine) scanRecursive(ctx context.Context, p provider.Provider, rootPat
 			}
 			if entry.IsDir {
 				queue = append(queue, entry.Path)
-			} else {
-				result = append(result, entry)
 			}
+			result = append(result, entry)
 		}
 	}
 
@@ -720,20 +721,38 @@ func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*
 		remoteMeta, hasRemote := remoteMap[key]
 		entry := entryMap[key]
 
+		// Determine if this is a directory entry
+		isDir := (hasLocal && localMeta.IsDir) || (hasRemote && remoteMeta.IsDir) || (entry != nil && entry.IsDir)
+
 		switch dir {
 		case DirectionUp:
-			tasks = append(tasks, generateUpTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+			tasks = append(tasks, generateUpTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote, isDir)...)
 		case DirectionDown:
-			tasks = append(tasks, generateDownTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+			tasks = append(tasks, generateDownTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote, isDir)...)
 		case DirectionBoth:
-			tasks = append(tasks, generateBothTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)...)
+			tasks = append(tasks, generateBothTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote, isDir)...)
 		}
 	}
+
+	// Sort tasks: file tasks first, then directory tasks.
+	// Lower Priority value runs first. Files get priority >= 1, dirs get priority 0.
+	sort.SliceStable(tasks, func(i, j int) bool {
+		ti, tj := tasks[i], tasks[j]
+		iIsDir := ti.Type == TaskCreateDir || ti.Type == TaskDeleteDir
+		jIsDir := tj.Type == TaskCreateDir || tj.Type == TaskDeleteDir
+		if iIsDir != jIsDir {
+			return !iIsDir // file tasks (not dir) come first
+		}
+		return ti.Priority < tj.Priority
+	})
 
 	return tasks
 }
 
-func generateUpTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+func generateUpTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool, isDir bool) []SyncTask {
+	if isDir {
+		return generateDirUpTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)
+	}
 	if hasLocal {
 		if !hasRemote || !sameSnapshot(localMeta, remoteMeta) {
 			if entry == nil || !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
@@ -749,7 +768,10 @@ func generateUpTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *pr
 	return nil
 }
 
-func generateDownTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+func generateDownTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool, isDir bool) []SyncTask {
+	if isDir {
+		return generateDirDownTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)
+	}
 	if hasRemote {
 		if isVirtualMode(pair) && (!hasLocal || isVirtual(entry)) {
 			if entry == nil || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) || !isVirtual(entry) {
@@ -771,7 +793,10 @@ func generateDownTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *
 	return nil
 }
 
-func generateBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+func generateBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool, isDir bool) []SyncTask {
+	if isDir {
+		return generateDirBothTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)
+	}
 	if hasLocal && hasRemote {
 		if entry == nil || !isSynced(entry) {
 			return conflictStrategyTasks(pair, key, localMeta, remoteMeta)
@@ -842,6 +867,63 @@ func latestWinsTask(pairID int64, key string, localMeta, remoteMeta *provider.Fi
 		return []SyncTask{newTask(TaskUpload, pairID, key)}
 	}
 	return nil
+}
+
+// --- Directory task generation ---
+
+// generateDirUpTasks handles directory entries in "up" direction.
+// Directories are synced via create_dir; deletion is handled by generateDirBothTasks
+// in bidirectional mode. In unidirectional "up", a missing remote dir needs creating.
+func generateDirUpTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+	if hasLocal && !hasRemote {
+		// Local has directory, remote doesn't -> create on remote
+		return []SyncTask{newDirTask(TaskCreateDir, pair.ID, key, "remote")}
+	}
+	return nil
+}
+
+// generateDirDownTasks handles directory entries in "down" direction.
+func generateDirDownTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+	if hasRemote && !hasLocal {
+		// Remote has directory, local doesn't -> create on local
+		return []SyncTask{newDirTask(TaskCreateDir, pair.ID, key, "local")}
+	}
+	// Directory deleted on remote side: local still has it, was previously synced
+	if !hasRemote && hasLocal && isSynced(entry) {
+		return []SyncTask{newDirTask(TaskDeleteDir, pair.ID, key, "local")}
+	}
+	return nil
+}
+
+// generateDirBothTasks handles directory entries in "both" direction.
+func generateDirBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
+	if hasLocal && !hasRemote {
+		if isSynced(entry) {
+			// Directory was synced but now deleted on remote -> delete on local
+			return []SyncTask{newDirTask(TaskDeleteDir, pair.ID, key, "local")}
+		}
+		// New local directory -> create on remote
+		return []SyncTask{newDirTask(TaskCreateDir, pair.ID, key, "remote")}
+	}
+	if hasRemote && !hasLocal {
+		if isSynced(entry) {
+			// Directory was synced but now deleted on local -> delete on remote
+			return []SyncTask{newDirTask(TaskDeleteDir, pair.ID, key, "remote")}
+		}
+		// New remote directory -> create on local
+		return []SyncTask{newDirTask(TaskCreateDir, pair.ID, key, "local")}
+	}
+	return nil
+}
+
+func newDirTask(taskType TaskType, pairID int64, key, target string) SyncTask {
+	return SyncTask{
+		Type:         taskType,
+		PairID:       pairID,
+		Path:         key,
+		Priority:     0, // Lower priority so file tasks run first
+		DeleteTarget: target,
+	}
 }
 
 func newTask(taskType TaskType, pairID int64, key string) SyncTask {
@@ -1008,8 +1090,8 @@ func filterPairFiles(pair *store.SyncPair, files []*provider.FileMeta) []*provid
 		if hasFolderFilter && !filterBySelectedFolders(pair, file.Path) {
 			continue
 		}
-		// Step 2: file-level filter via include/exclude patterns
-		if hasPatternFilter && !pathAllowed(file.Path, include, exclude) {
+		// Step 2: file-level filter via include/exclude patterns (directories pass through)
+		if hasPatternFilter && !file.IsDir && !pathAllowed(file.Path, include, exclude) {
 			continue
 		}
 		filtered = append(filtered, file)
@@ -1097,6 +1179,7 @@ func (e *Engine) indexCleanFiles(pair *store.SyncPair, localFiles, remoteFiles [
 			LocalSize:   localMeta.Size,
 			RemoteSize:  remoteMeta.Size,
 			SyncState:   "synced",
+			IsDir:       localMeta.IsDir,
 		}); err != nil {
 			return fmt.Errorf("index clean file %s: %w", key, err)
 		}
@@ -1155,6 +1238,24 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 	case TaskConflict:
 		logger.L.Debug().Str("path", task.Path).Str("pair", pair.Name).Msg("recording conflict")
 		return e.doRecordConflict(ctx, pair, local, remote, task.Path)
+	case TaskCreateDir:
+		var target provider.Provider
+		if task.DeleteTarget == "local" {
+			target = local
+		} else {
+			target = remote
+		}
+		logger.L.Debug().Str("path", task.Path).Str("target", task.DeleteTarget).Str("pair", pair.Name).Msg("creating directory")
+		return e.doCreateDir(ctx, pair, target, task.DeleteTarget, task.Path)
+	case TaskDeleteDir:
+		var target provider.Provider
+		if task.DeleteTarget == "local" {
+			target = local
+		} else {
+			target = remote
+		}
+		logger.L.Debug().Str("path", task.Path).Str("target", task.DeleteTarget).Str("pair", pair.Name).Msg("deleting directory")
+		return e.doDeleteDir(ctx, pair, target, task.DeleteTarget, task.Path)
 	default:
 		return fmt.Errorf("unknown task type: %s", task.Type)
 	}
@@ -1369,6 +1470,74 @@ func (e *Engine) doDelete(ctx context.Context, pair *store.SyncPair, target prov
 
 	_ = e.store.AddSyncStats(0, 0, 1, 0, 0, 0)
 	logger.L.Info().Str("path", filePath).Str("pair", pair.Name).Msg("deleted")
+	return nil
+}
+
+func (e *Engine) doCreateDir(ctx context.Context, pair *store.SyncPair, target provider.Provider, targetSide, dirPath string) error {
+	if err := target.CreateDir(ctx, dirPath); err != nil {
+		return fmt.Errorf("create directory %s on %s: %w", dirPath, targetSide, err)
+	}
+
+	// Record the directory entry in the DB
+	meta, err := target.Stat(ctx, dirPath)
+	if err != nil {
+		meta = &provider.FileMeta{Path: dirPath, IsDir: true}
+	}
+	entry := &store.FileEntry{
+		Path:       dirPath,
+		SyncPairID: pair.ID,
+		SyncState:  "synced",
+		IsDir:      true,
+	}
+	if meta != nil {
+		if targetSide == "local" {
+			entry.LocalMTime = &meta.ModTime
+			entry.LocalSize = meta.Size
+		} else {
+			entry.RemoteMTime = &meta.ModTime
+			entry.RemoteSize = meta.Size
+		}
+	}
+	if err := e.store.UpsertFileEntry(entry); err != nil {
+		return fmt.Errorf("record directory entry %s: %w", dirPath, err)
+	}
+
+	logger.L.Info().Str("path", dirPath).Str("pair", pair.Name).Str("side", targetSide).Msg("directory created")
+	return nil
+}
+
+func (e *Engine) doDeleteDir(ctx context.Context, pair *store.SyncPair, target provider.Provider, targetSide, dirPath string) error {
+	// Delete all synced child files under this directory from the target provider
+	dbEntries, _ := e.store.ListFileEntriesByPair(pair.ID)
+	prefix := path.Clean(dirPath) + "/"
+	for _, entry := range dbEntries {
+		if entry.IsDir {
+			continue // skip sub-directory entries; they get their own tasks
+		}
+		if strings.HasPrefix(entry.Path, prefix) || path.Clean(entry.Path) == path.Clean(dirPath) {
+			// Delete the file from the target provider
+			if err := target.DeleteFile(ctx, entry.Path); err != nil && !errors.Is(err, provider.ErrNotFound) {
+				logger.L.Warn().Err(err).Str("path", entry.Path).Msg("failed to delete child file")
+			}
+			// Remove the file entry from DB
+			e.store.DeleteFileEntry(entry.ID)
+		}
+	}
+
+	// Delete the directory itself
+	if err := target.DeleteFile(ctx, dirPath); err != nil {
+		if !errors.Is(err, provider.ErrNotFound) {
+			logger.L.Warn().Err(err).Str("path", dirPath).Msg("failed to delete directory")
+		}
+	}
+
+	// Remove the directory entry from DB
+	dirEntry, _ := e.store.GetFileEntry(pair.ID, dirPath)
+	if dirEntry != nil {
+		e.store.DeleteFileEntry(dirEntry.ID)
+	}
+
+	logger.L.Info().Str("path", dirPath).Str("pair", pair.Name).Str("side", targetSide).Msg("directory deleted")
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -779,4 +780,424 @@ func TestIsNormalMode(t *testing.T) {
 			t.Errorf("isNormalMode(%q) = %v, want %v", tc.mode, got, tc.expected)
 		}
 	}
+}
+
+// --- Directory sync tests ---
+
+func assertDirExists(t *testing.T, root, rel string) {
+	t.Helper()
+	info, err := os.Stat(filepath.Join(root, rel))
+	if err != nil {
+		t.Fatalf("expected directory %s to exist, got error: %v", rel, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %s to be a directory, got file", rel)
+	}
+}
+
+func assertDirMissing(t *testing.T, root, rel string) {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(root, rel))
+	if err == nil {
+		t.Fatalf("expected directory %s to not exist, but it does", rel)
+	}
+	if !os.IsNotExist(err) {
+		t.Fatalf("stat %s returned unexpected error: %v", rel, err)
+	}
+}
+
+func TestDirectorySync_RemoteHasDir_LocalDoesNot_CreatedLocally(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Remote has a directory with a file inside
+	writeTestFile(t, remoteDir, "docs/readme.txt", "hello")
+
+	pair := &store.SyncPair{
+		Name:      "dir-down",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "down",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, localDir, "docs/readme.txt", "hello")
+	assertDirExists(t, localDir, "docs")
+}
+
+func TestDirectorySync_LocalHasDir_RemoteDoesNot_CreatedRemotely(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Local has a directory with a file inside
+	writeTestFile(t, localDir, "docs/readme.txt", "hello")
+
+	pair := &store.SyncPair{
+		Name:      "dir-up",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, remoteDir, "docs/readme.txt", "hello")
+	assertDirExists(t, remoteDir, "docs")
+}
+
+func TestDirectorySync_RemoteDeletesDir_LocalDirDeleted(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Both sides have the directory with a file
+	writeTestFile(t, localDir, "docs/readme.txt", "hello")
+	writeTestFile(t, remoteDir, "docs/readme.txt", "hello")
+
+	pair := &store.SyncPair{
+		Name:      "dir-delete-down",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "both",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Verify both sides have the file
+	assertFileContent(t, localDir, "docs/readme.txt", "hello")
+	assertFileContent(t, remoteDir, "docs/readme.txt", "hello")
+
+	// Delete the directory on the remote side
+	os.RemoveAll(filepath.Join(remoteDir, "docs"))
+
+	// Re-register with fresh providers so the remote scan reflects the deletion
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync should propagate deletion
+	runPairSync(t, eng, pair.ID, "")
+
+	assertMissing(t, localDir, "docs/readme.txt")
+}
+
+func TestDirectorySync_LocalDeletesDir_RemoteDirDeleted(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Both sides have the directory with a file
+	writeTestFile(t, localDir, "docs/readme.txt", "hello")
+	writeTestFile(t, remoteDir, "docs/readme.txt", "hello")
+
+	pair := &store.SyncPair{
+		Name:      "dir-delete-up",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "both",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Verify both sides have the file
+	assertFileContent(t, localDir, "docs/readme.txt", "hello")
+	assertFileContent(t, remoteDir, "docs/readme.txt", "hello")
+
+	// Delete the directory on the local side
+	os.RemoveAll(filepath.Join(localDir, "docs"))
+
+	// Re-register with fresh providers
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync should propagate deletion
+	runPairSync(t, eng, pair.ID, "")
+
+	assertMissing(t, remoteDir, "docs/readme.txt")
+}
+
+func TestDirectorySync_EmptyDirPreserved(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Create an empty directory locally
+	if err := os.MkdirAll(filepath.Join(localDir, "emptydir"), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	pair := &store.SyncPair{
+		Name:      "dir-empty",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// The empty directory should be created on remote
+	assertDirExists(t, remoteDir, "emptydir")
+}
+
+func TestDirectorySync_DirEntryRecordedInDB(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Create a directory with a file on local
+	writeTestFile(t, localDir, "docs/readme.txt", "content")
+
+	pair := &store.SyncPair{
+		Name:      "dir-db",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Check that the directory entry is recorded in DB
+	entry, err := s.GetFileEntry(pair.ID, "/docs")
+	if err != nil {
+		t.Fatalf("get dir entry: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("directory entry not found in DB")
+	}
+	if !entry.IsDir {
+		t.Fatal("entry.IsDir = false, want true")
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("entry.SyncState = %q, want %q", entry.SyncState, "synced")
+	}
+}
+
+func TestDirectorySync_NestedDirsCreatedRecursively(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Create deeply nested directory structure on local
+	writeTestFile(t, localDir, "a/b/c/deep.txt", "deep-content")
+
+	pair := &store.SyncPair{
+		Name:      "dir-nested",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, remoteDir, filepath.Join("a", "b", "c", "deep.txt"), "deep-content")
+	assertDirExists(t, remoteDir, "a")
+	assertDirExists(t, remoteDir, filepath.Join("a", "b"))
+	assertDirExists(t, remoteDir, filepath.Join("a", "b", "c"))
+}
+
+func TestDirectorySync_DirWithMultipleFiles_Up(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Local directory with multiple files
+	writeTestFile(t, localDir, "project/main.go", "package main")
+	writeTestFile(t, localDir, "project/README.md", "# readme")
+	writeTestFile(t, localDir, "project/go.mod", "module test")
+
+	pair := &store.SyncPair{
+		Name:      "dir-multi-up",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, remoteDir, filepath.Join("project", "main.go"), "package main")
+	assertFileContent(t, remoteDir, filepath.Join("project", "README.md"), "# readme")
+	assertFileContent(t, remoteDir, filepath.Join("project", "go.mod"), "module test")
+	assertDirExists(t, remoteDir, "project")
+}
+
+func TestDirectorySync_DirDeletionCleansUpChildDBEntries(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Both sides have a directory with multiple files
+	writeTestFile(t, localDir, "project/main.go", "package main")
+	writeTestFile(t, localDir, "project/util.go", "package main")
+	writeTestFile(t, remoteDir, "project/main.go", "package main")
+	writeTestFile(t, remoteDir, "project/util.go", "package main")
+
+	pair := &store.SyncPair{
+		Name:      "dir-cleanup-db",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "both",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Verify DB has entries
+	entries, err := s.ListFileEntriesByPair(pair.ID)
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if len(entries) < 2 {
+		t.Fatalf("expected at least 2 entries after initial sync, got %d", len(entries))
+	}
+
+	// Delete directory on remote
+	os.RemoveAll(filepath.Join(remoteDir, "project"))
+
+	// Re-register with fresh providers
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	runPairSync(t, eng, pair.ID, "")
+
+	// Verify child file entries are removed from DB
+	entries, err = s.ListFileEntriesByPair(pair.ID)
+	if err != nil {
+		t.Fatalf("list entries after delete: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Path, "/project") {
+			t.Errorf("found leftover entry under /project: %s (is_dir=%v)", e.Path, e.IsDir)
+		}
+	}
+}
+
+func TestDirectorySync_SecondSyncIdempotent(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	writeTestFile(t, localDir, "docs/note.txt", "note")
+
+	pair := &store.SyncPair{
+		Name:      "dir-idempotent",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "docs/note.txt", "note")
+
+	// Second sync should not generate any new tasks or change anything
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "docs/note.txt", "note")
+	assertDirExists(t, remoteDir, "docs")
+
+	// Verify DB state is stable
+	entry, err := s.GetFileEntry(pair.ID, "/docs")
+	if err != nil {
+		t.Fatalf("get dir entry: %v", err)
+	}
+	if entry == nil || !entry.IsDir {
+		t.Fatal("directory entry missing or not marked as dir after second sync")
+	}
+}
+
+func TestDirectorySync_SelectedFoldersAppliesToDirectories(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	writeTestFile(t, localDir, "work/report.txt", "work-report")
+	writeTestFile(t, localDir, "photos/vacation.txt", "photo")
+
+	pair := &store.SyncPair{
+		Name:            "dir-select-folders",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "normal",
+		Direction:       "up",
+		Enabled:         true,
+		SelectedFolders: `["work"]`,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, remoteDir, filepath.Join("work", "report.txt"), "work-report")
+	assertDirExists(t, remoteDir, "work")
+	assertMissing(t, remoteDir, filepath.Join("photos", "vacation.txt"))
+	assertDirMissing(t, remoteDir, "photos")
 }
