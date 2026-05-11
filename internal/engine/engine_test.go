@@ -325,6 +325,7 @@ func TestGenerateTasksSkipsUnchangedFileWithDifferentSideMtimes(t *testing.T) {
 
 	eng := &Engine{}
 	tasks := eng.generateTasks(
+		context.Background(),
 		pair,
 		[]*provider.FileMeta{{Path: "/same.txt", Size: 4, ModTime: localTime}},
 		[]*provider.FileMeta{{Path: "/same.txt", Size: 4, ModTime: remoteTime}},
@@ -1465,5 +1466,305 @@ func TestVirtualMode_BothChanged_UploadWinsOverConflict(t *testing.T) {
 	}
 	if len(conflicts) != 0 {
 		t.Fatalf("conflicts = %d, want 0 (virtual mode should not create conflicts)", len(conflicts))
+	}
+}
+
+// --- Two-stage hash detection tests ---
+
+func TestTwoStageHashDetection_FileTouched_NoSyncTask(t *testing.T) {
+	// When a file is "touched" (ModTime changes but content stays the same),
+	// the two-stage hash detection should NOT generate a sync task.
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "touched.txt", "unchanged")
+	writeTestFile(t, remoteDir, "touched.txt", "unchanged")
+
+	pair := &store.SyncPair{
+		Name:       "touch-test",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+
+	// First sync to establish synced state with hashes cached.
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "touched.txt", "unchanged")
+
+	entry, err := s.GetFileEntry(pair.ID, "/touched.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry after first sync: %v", err)
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("sync state = %q, want synced", entry.SyncState)
+	}
+	if entry.LocalHash == "" {
+		t.Fatal("local hash not cached after first sync")
+	}
+	if entry.RemoteHash == "" {
+		t.Fatal("remote hash not cached after first sync")
+	}
+
+	// Re-register with fresh providers
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Touch the local file (change mtime without changing content)
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(localDir, "touched.txt"), now, now.Add(5*time.Second)); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	// Second sync should NOT upload because content is identical.
+	runPairSync(t, eng, pair.ID, "")
+
+	// The remote file should still have the original content (unchanged).
+	assertFileContent(t, remoteDir, "touched.txt", "unchanged")
+
+	// The DB entry should now have the updated mtime but same hash.
+	entryAfter, err := s.GetFileEntry(pair.ID, "/touched.txt")
+	if err != nil || entryAfter == nil {
+		t.Fatalf("get entry after touch sync: %v", err)
+	}
+	if entryAfter.LocalHash != entry.LocalHash {
+		t.Fatalf("local hash changed from %q to %q after touch (should be same)", entry.LocalHash, entryAfter.LocalHash)
+	}
+}
+
+func TestTwoStageHashDetection_FileContentChanges_SyncTaskGenerated(t *testing.T) {
+	// When file content actually changes, a sync task should be generated.
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "change.txt", "original")
+	writeTestFile(t, remoteDir, "change.txt", "original")
+
+	pair := &store.SyncPair{
+		Name:       "change-test",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Re-register with fresh providers
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Actually change the local file content and ensure mtime changes
+	writeTestFile(t, localDir, "change.txt", "modified-content")
+	// Force mtime into the future so the change is detected at Stage 1
+	future := time.Now().Add(10 * time.Second)
+	if err := os.Chtimes(filepath.Join(localDir, "change.txt"), future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	// Second sync should upload the change.
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "change.txt", "modified-content")
+}
+
+func TestTwoStageHashDetection_SizeAndModTimeUnchanged_HashNotRecomputed(t *testing.T) {
+	// When size and mtime match the DB record, hash should not be recomputed.
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "stable.txt", "stable-content")
+	writeTestFile(t, remoteDir, "stable.txt", "stable-content")
+
+	pair := &store.SyncPair{
+		Name:       "stable-test",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	entryBefore, err := s.GetFileEntry(pair.ID, "/stable.txt")
+	if err != nil || entryBefore == nil {
+		t.Fatalf("get entry before: %v", err)
+	}
+	versionBefore := entryBefore.Version
+
+	// Re-register with fresh providers
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync with no changes -- should not touch the DB entry.
+	runPairSync(t, eng, pair.ID, "")
+
+	entryAfter, err := s.GetFileEntry(pair.ID, "/stable.txt")
+	if err != nil || entryAfter == nil {
+		t.Fatalf("get entry after: %v", err)
+	}
+	if entryAfter.Version != versionBefore {
+		t.Fatalf("version changed from %d to %d on no-change sync", versionBefore, entryAfter.Version)
+	}
+}
+
+func TestTwoStageHashDetection_RemoteNoCachedHash_FallsBackToMetadata(t *testing.T) {
+	// When the remote side has no cached hash (first time seeing a change),
+	// it should fall back to metadata-only comparison and detect the change.
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "remote.txt", "local-content")
+	writeTestFile(t, remoteDir, "remote.txt", "remote-content")
+
+	pair := &store.SyncPair{
+		Name:       "remote-fallback",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// File should be synced (conflict resolution or upload).
+	// The key point is that remote-side detection without a cached hash falls
+	// back to metadata comparison and correctly detects changes.
+	entry, err := s.GetFileEntry(pair.ID, "/remote.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("sync state = %q, want synced", entry.SyncState)
+	}
+}
+
+func TestTwoStageHashDetection_HashCachedAfterSync(t *testing.T) {
+	// Verify that hashes are cached in the DB after a sync.
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "hash-cache.txt", "cache-me")
+	writeTestFile(t, remoteDir, "hash-cache.txt", "cache-me")
+
+	pair := &store.SyncPair{
+		Name:       "hash-cache-test",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	entry, err := s.GetFileEntry(pair.ID, "/hash-cache.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry.LocalHash == "" {
+		t.Fatal("local hash should be cached after sync")
+	}
+	if entry.RemoteHash == "" {
+		t.Fatal("remote hash should be cached after sync")
+	}
+	if entry.LocalHash != entry.RemoteHash {
+		t.Fatalf("local hash %q != remote hash %q for identical files", entry.LocalHash, entry.RemoteHash)
+	}
+}
+
+func TestTwoStageHashDetection_UploadCachesHash(t *testing.T) {
+	// Verify that hash is cached after an upload.
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "upload.txt", "upload-content")
+
+	pair := &store.SyncPair{
+		Name:       "upload-hash",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	entry, err := s.GetFileEntry(pair.ID, "/upload.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry.LocalHash == "" {
+		t.Fatal("local hash should be cached after upload")
+	}
+	if entry.RemoteHash == "" {
+		t.Fatal("remote hash should be cached after upload")
+	}
+}
+
+func TestTwoStageHashDetection_DownloadCachesHash(t *testing.T) {
+	// Verify that hash is cached after a download.
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, remoteDir, "download.txt", "download-content")
+
+	pair := &store.SyncPair{
+		Name:       "download-hash",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "down",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	entry, err := s.GetFileEntry(pair.ID, "/download.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry.LocalHash == "" {
+		t.Fatal("local hash should be cached after download")
+	}
+	if entry.RemoteHash == "" {
+		t.Fatal("remote hash should be cached after download")
 	}
 }

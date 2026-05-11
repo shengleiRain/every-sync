@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/rain/every-sync/internal/logger"
 	"github.com/rain/every-sync/internal/provider"
 	"github.com/rain/every-sync/internal/store"
@@ -606,7 +608,7 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	// Load DB entries for deletion detection
 	dbEntries, _ := e.store.ListFileEntriesByPair(pair.ID)
 
-	tasks := e.generateTasks(pair, localFiles, remoteFiles, dbEntries, dir)
+	tasks := e.generateTasks(ctx, pair, localFiles, remoteFiles, dbEntries, dir)
 	taskPaths := make(map[string]bool, len(tasks))
 
 	uploadCount, downloadCount, deleteCount := 0, 0, 0
@@ -691,7 +693,7 @@ func shouldSkipPath(filePath string) bool {
 	return base == "Identifier" || strings.HasSuffix(base, partialSuffix)
 }
 
-func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, dir Direction) []SyncTask {
+func (e *Engine) generateTasks(ctx context.Context, pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, dir Direction) []SyncTask {
 	var tasks []SyncTask
 
 	localMap := make(map[string]*provider.FileMeta, len(localFiles))
@@ -736,7 +738,7 @@ func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*
 		case DirectionDown:
 			tasks = append(tasks, generateDownTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote, isDir)...)
 		case DirectionBoth:
-			tasks = append(tasks, generateBothTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote, isDir)...)
+			tasks = append(tasks, e.generateBothTasks(ctx, pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote, isDir)...)
 		}
 	}
 
@@ -811,7 +813,7 @@ func generateDownTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *
 	return nil
 }
 
-func generateBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool, isDir bool) []SyncTask {
+func (e *Engine) generateBothTasks(ctx context.Context, pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool, isDir bool) []SyncTask {
 	if isDir {
 		return generateDirBothTasks(pair, key, localMeta, remoteMeta, entry, hasLocal, hasRemote)
 	}
@@ -820,8 +822,21 @@ func generateBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *
 			return conflictStrategyTasks(pair, key, localMeta, remoteMeta)
 		}
 
-		localChanged := !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize)
-		remoteChanged := !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize)
+		// Two-stage change detection.
+		localResult, _ := e.detectChange(ctx, localMeta, entry, "local", e.locals[pair.ID], key)
+		remoteResult, _ := e.detectChange(ctx, remoteMeta, entry, "remote", e.remotes[pair.ID], key)
+
+		localChanged := localResult.changed
+		remoteChanged := remoteResult.changed
+
+		// When metadata changed but hash matched (false alarm), update the DB
+		// entry's ModTime so we don't re-check on the next scan.
+		if localResult.hash != "" && !localChanged {
+			e.updateEntryHash(pair.ID, key, "local", localResult.hash, localMeta)
+		}
+		if remoteResult.hash != "" && !remoteChanged {
+			e.updateEntryHash(pair.ID, key, "remote", remoteResult.hash, remoteMeta)
+		}
 
 		switch {
 		case !localChanged && !remoteChanged:
@@ -864,6 +879,28 @@ func generateBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *
 	}
 
 	return nil
+}
+
+// updateEntryHash updates the stored mtime and hash for a side when metadata
+// changed but content did not (false alarm), preventing redundant hash
+// computation on the next scan.
+func (e *Engine) updateEntryHash(pairID int64, filePath, side, hash string, meta *provider.FileMeta) {
+	if meta == nil {
+		return
+	}
+	entry, err := e.store.GetFileEntry(pairID, filePath)
+	if err != nil || entry == nil {
+		return
+	}
+	switch side {
+	case "local":
+		entry.LocalMTime = &meta.ModTime
+		entry.LocalHash = hash
+	case "remote":
+		entry.RemoteMTime = &meta.ModTime
+		entry.RemoteHash = hash
+	}
+	_ = e.store.UpsertFileEntry(entry)
 }
 
 func conflictStrategyTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta) []SyncTask {
@@ -1082,6 +1119,95 @@ func metaMatchesEntry(meta *provider.FileMeta, recorded *time.Time, size int64) 
 	return meta.Size == size && timesClose(meta.ModTime, *recorded)
 }
 
+// computeHashViaProvider reads file content through a provider and computes an
+// xxhash of the content. This works for both local and remote providers without
+// needing direct filesystem access.
+func (e *Engine) computeHashViaProvider(ctx context.Context, p provider.Provider, filePath string) (string, error) {
+	reader, _, err := p.GetFile(ctx, filePath)
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+	h := xxhash.New()
+	if _, err := io.Copy(h, reader); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// changeDetectionResult holds the outcome of two-stage change detection.
+type changeDetectionResult struct {
+	// changed is true when the file has genuinely changed and a sync task should
+	// be generated.
+	changed bool
+	// hash is the newly computed content hash (empty when metadata matched and
+	// hash computation was skipped).
+	hash string
+}
+
+// detectChange performs two-stage change detection:
+//
+// Stage 1 (metadata): compare Size and ModTime with the database record.
+// If both match, the file has not changed — skip.
+//
+// Stage 2 (content hash): metadata differs, so compute the file's content hash
+// and compare with the cached hash in the database. If hashes match it is a
+// false alarm (e.g. file was touched). If hashes differ it is a real change.
+//
+// For the "remote" side where we cannot cheaply re-hash, the function falls
+// back to pure metadata comparison when no cached hash is available.
+func (e *Engine) detectChange(
+	ctx context.Context,
+	meta *provider.FileMeta,
+	entry *store.FileEntry,
+	side string,
+	p provider.Provider,
+	filePath string,
+) (changeDetectionResult, error) {
+	// Determine which recorded mtime/size/hash to compare against.
+	var recorded *time.Time
+	var size int64
+	var cachedHash string
+	switch side {
+	case "local":
+		recorded = entry.LocalMTime
+		size = entry.LocalSize
+		cachedHash = entry.LocalHash
+	case "remote":
+		recorded = entry.RemoteMTime
+		size = entry.RemoteSize
+		cachedHash = entry.RemoteHash
+	}
+
+	// Stage 1: metadata comparison — if both size and modtime match, no change.
+	if metaMatchesEntry(meta, recorded, size) {
+		return changeDetectionResult{changed: false}, nil
+	}
+
+	// Stage 2: content hash verification.
+	// For local side always compute hash. For remote side, only compute hash if
+	// a cached hash exists (first time we see the file, fall back to metadata).
+	if side == "local" || (side == "remote" && cachedHash != "") {
+		newHash, err := e.computeHashViaProvider(ctx, p, filePath)
+		if err != nil {
+			// Hash computation failed (e.g. file disappeared) — treat as changed
+			// so the sync engine handles it.
+			logger.L.Debug().Err(err).Str("side", side).Str("path", filePath).Msg("hash computation failed, treating as changed")
+			return changeDetectionResult{changed: true}, nil
+		}
+		if newHash == cachedHash {
+			// Metadata changed but content is the same — false alarm.
+			return changeDetectionResult{changed: false, hash: newHash}, nil
+		}
+		// Content truly changed.
+		return changeDetectionResult{changed: true, hash: newHash}, nil
+	}
+
+	// Remote side with no cached hash — fall back to metadata-only comparison.
+	// Metadata already differed (we passed Stage 1), so it is a change.
+	return changeDetectionResult{changed: true}, nil
+}
+
 func timesClose(a, b time.Time) bool {
 	if a.Equal(b) {
 		return true
@@ -1197,6 +1323,13 @@ func (e *Engine) indexCleanFiles(pair *store.SyncPair, localFiles, remoteFiles [
 		if isSynced(entryMap[key]) {
 			continue
 		}
+
+		// Compute hashes for the file so subsequent scans can use them for
+		// two-stage detection. Use local provider for both sides since the
+		// content is identical at this point.
+		localHash, _ := e.computeHashViaProvider(context.Background(), e.locals[pair.ID], key)
+		remoteHash := localHash // identical content
+
 		if err := e.store.UpsertFileEntry(&store.FileEntry{
 			Path:        key,
 			SyncPairID:  pair.ID,
@@ -1204,6 +1337,8 @@ func (e *Engine) indexCleanFiles(pair *store.SyncPair, localFiles, remoteFiles [
 			RemoteMTime: &remoteMeta.ModTime,
 			LocalSize:   localMeta.Size,
 			RemoteSize:  remoteMeta.Size,
+			LocalHash:   localHash,
+			RemoteHash:  remoteHash,
 			SyncState:   "synced",
 			IsDir:       localMeta.IsDir,
 		}); err != nil {
@@ -1294,6 +1429,8 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		if err != nil {
 			return fmt.Errorf("resumable upload to remote: %w", err)
 		}
+		localHash, _ := e.computeHashViaProvider(ctx, local, filePath)
+		remoteHash, _ := e.computeHashViaProvider(ctx, remote, filePath)
 		if err := e.store.UpsertFileEntry(&store.FileEntry{
 			Path:        filePath,
 			SyncPairID:  pair.ID,
@@ -1301,6 +1438,8 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 			RemoteMTime: &remoteMeta.ModTime,
 			LocalSize:   meta.Size,
 			RemoteSize:  remoteMeta.Size,
+			LocalHash:   localHash,
+			RemoteHash:  remoteHash,
 			SyncState:   "synced",
 		}); err != nil {
 			return fmt.Errorf("record upload: %w", err)
@@ -1332,6 +1471,8 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		remoteMeta = meta
 	}
 
+	localHash, _ := e.computeHashViaProvider(ctx, local, filePath)
+	remoteHash, _ := e.computeHashViaProvider(ctx, remote, filePath)
 	if err := e.store.UpsertFileEntry(&store.FileEntry{
 		Path:        filePath,
 		SyncPairID:  pair.ID,
@@ -1339,6 +1480,8 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		RemoteMTime: &remoteMeta.ModTime,
 		LocalSize:   meta.Size,
 		RemoteSize:  remoteMeta.Size,
+		LocalHash:   localHash,
+		RemoteHash:  remoteHash,
 		SyncState:   "synced",
 	}); err != nil {
 		return fmt.Errorf("record upload: %w", err)
@@ -1356,6 +1499,8 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		if err != nil {
 			return fmt.Errorf("resumable download to local: %w", err)
 		}
+		localHash, _ := e.computeHashViaProvider(ctx, local, filePath)
+		remoteHash, _ := e.computeHashViaProvider(ctx, remote, filePath)
 		if err := e.store.UpsertFileEntry(&store.FileEntry{
 			Path:        filePath,
 			SyncPairID:  pair.ID,
@@ -1363,6 +1508,8 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 			RemoteMTime: &meta.ModTime,
 			LocalSize:   localMeta.Size,
 			RemoteSize:  meta.Size,
+			LocalHash:   localHash,
+			RemoteHash:  remoteHash,
 			SyncState:   "synced",
 		}); err != nil {
 			return fmt.Errorf("record download: %w", err)
@@ -1394,6 +1541,8 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		localMeta = meta
 	}
 
+	localHash, _ := e.computeHashViaProvider(ctx, local, filePath)
+	remoteHash, _ := e.computeHashViaProvider(ctx, remote, filePath)
 	if err := e.store.UpsertFileEntry(&store.FileEntry{
 		Path:        filePath,
 		SyncPairID:  pair.ID,
@@ -1401,6 +1550,8 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		RemoteMTime: &meta.ModTime,
 		LocalSize:   localMeta.Size,
 		RemoteSize:  meta.Size,
+		LocalHash:   localHash,
+		RemoteHash:  remoteHash,
 		SyncState:   "synced",
 	}); err != nil {
 		return fmt.Errorf("record download: %w", err)
