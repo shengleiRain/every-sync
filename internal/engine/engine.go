@@ -55,7 +55,8 @@ type SyncTask struct {
 	Path         string
 	Priority     int
 	Retries      int
-	Target string // "local" or "remote"
+	Target       string // "local", "remote", or "db_cleanup"
+	ConflictType string // "modify_delete", "delete_modify", "modify_modify", etc.
 }
 
 type TaskResult struct {
@@ -819,6 +820,14 @@ func (e *Engine) generateBothTasks(ctx context.Context, pair *store.SyncPair, ke
 	}
 	if hasLocal && hasRemote {
 		if entry == nil || !isSynced(entry) {
+			// First sync: both sides have the file, no synced DB record.
+			// Compare content to determine if they are identical.
+			equal, err := e.compareContent(ctx, e.locals[pair.ID], e.remotes[pair.ID], key)
+			if err == nil && equal {
+				// Content is identical — indexCleanFiles will mark as synced.
+				return nil
+			}
+			// Content differs — apply conflict strategy.
 			return conflictStrategyTasks(pair, key, localMeta, remoteMeta)
 		}
 
@@ -858,13 +867,22 @@ func (e *Engine) generateBothTasks(ctx context.Context, pair *store.SyncPair, ke
 		}
 	}
 
+	// hasLocal && !hasRemote: local file exists, remote is gone.
 	if hasLocal {
-		if isSynced(entry) && metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize) {
+		if isSynced(entry) {
+			// Check if local actually changed compared to the DB record.
+			// If unchanged, remote initiated the delete — delete local copy.
+			// If changed, local was modified while remote was deleted — conflict.
+			localChanged := !metaMatchesEntry(localMeta, entry.LocalMTime, entry.LocalSize)
+			if localChanged {
+				return conflictWithTasks(pair, key, "modify_delete")
+			}
 			return []SyncTask{newDeleteTask(pair.ID, key, "local")}
 		}
 		return []SyncTask{newTask(TaskUpload, pair.ID, key)}
 	}
 
+	// !hasLocal && hasRemote: remote file exists, local is gone.
 	if hasRemote {
 		if isVirtualMode(pair) {
 			if entry == nil || !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) || !isVirtual(entry) {
@@ -872,12 +890,24 @@ func (e *Engine) generateBothTasks(ctx context.Context, pair *store.SyncPair, ke
 			}
 			return nil
 		}
-		if isSynced(entry) && metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize) {
+		if isSynced(entry) {
+			// Check if remote actually changed compared to the DB record.
+			// If unchanged, local initiated the delete — delete remote copy.
+			// If changed, remote was modified while local was deleted — conflict.
+			remoteChanged := !metaMatchesEntry(remoteMeta, entry.RemoteMTime, entry.RemoteSize)
+			if remoteChanged {
+				return conflictWithTasks(pair, key, "delete_modify")
+			}
 			return []SyncTask{newDeleteTask(pair.ID, key, "remote")}
 		}
 		return []SyncTask{newTask(TaskDownload, pair.ID, key)}
 	}
 
+	// !hasLocal && !hasRemote: both sides deleted the file.
+	if entry != nil {
+		// Both deleted — clean up the stale DB entry.
+		return []SyncTask{newDeleteTask(pair.ID, key, "db_cleanup")}
+	}
 	return nil
 }
 
@@ -914,6 +944,27 @@ func conflictStrategyTasks(pair *store.SyncPair, key string, localMeta, remoteMe
 	default:
 		return latestWinsTask(pair.ID, key, localMeta, remoteMeta)
 	}
+}
+
+// compareContent reads file content from both providers, hashes them, and
+// returns whether the content is identical.
+func (e *Engine) compareContent(ctx context.Context, local, remote provider.Provider, filePath string) (bool, error) {
+	localHash, err := e.computeHashViaProvider(ctx, local, filePath)
+	if err != nil {
+		return false, fmt.Errorf("compare local hash: %w", err)
+	}
+	remoteHash, err := e.computeHashViaProvider(ctx, remote, filePath)
+	if err != nil {
+		return false, fmt.Errorf("compare remote hash: %w", err)
+	}
+	return localHash == remoteHash, nil
+}
+
+// conflictWithTasks generates a conflict task with the specified conflict type.
+func conflictWithTasks(pair *store.SyncPair, key, conflictType string) []SyncTask {
+	task := newTask(TaskConflict, pair.ID, key)
+	task.ConflictType = conflictType
+	return []SyncTask{task}
 }
 
 func latestWinsTask(pairID int64, key string, localMeta, remoteMeta *provider.FileMeta) []SyncTask {
@@ -1385,6 +1436,15 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 		logger.L.Debug().Str("path", task.Path).Str("pair", pair.Name).Msg("downloading")
 		return e.doDownload(ctx, pair, local, remote, task.Path)
 	case TaskDelete:
+		if task.Target == "db_cleanup" {
+			// Both sides deleted — just clean up the stale DB entry.
+			entry, _ := e.store.GetFileEntry(pair.ID, task.Path)
+			if entry != nil {
+				e.store.DeleteFileEntry(entry.ID)
+			}
+			logger.L.Debug().Str("path", task.Path).Str("pair", pair.Name).Msg("cleaned up db entry")
+			return nil
+		}
 		var target provider.Provider
 		if task.Target == "local" {
 			target = local
@@ -1398,7 +1458,7 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 		return e.doVirtualize(ctx, pair, remote, task.Path)
 	case TaskConflict:
 		logger.L.Debug().Str("path", task.Path).Str("pair", pair.Name).Msg("recording conflict")
-		return e.doRecordConflict(ctx, pair, local, remote, task.Path)
+		return e.doRecordConflict(ctx, pair, local, remote, task.Path, task.ConflictType)
 	case TaskCreateDir:
 		var target provider.Provider
 		if task.Target == "local" {
@@ -1746,21 +1806,33 @@ func (e *Engine) doVirtualize(ctx context.Context, pair *store.SyncPair, remote 
 	return nil
 }
 
-func (e *Engine) doRecordConflict(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, filePath string) error {
-	localMeta, localErr := local.Stat(ctx, filePath)
-	remoteMeta, remoteErr := remote.Stat(ctx, filePath)
-	if localErr != nil || remoteErr != nil {
-		return fmt.Errorf("stat conflict sides: local=%v remote=%v", localErr, remoteErr)
+func (e *Engine) doRecordConflict(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, filePath, conflictType string) error {
+	localMeta, _ := local.Stat(ctx, filePath)
+	remoteMeta, _ := remote.Stat(ctx, filePath)
+
+	var localMTime *time.Time
+	var remoteMTime *time.Time
+	var localSize, remoteSize int64
+
+	if localMeta != nil {
+		localMTime = &localMeta.ModTime
+		localSize = localMeta.Size
 	}
+	if remoteMeta != nil {
+		remoteMTime = &remoteMeta.ModTime
+		remoteSize = remoteMeta.Size
+	}
+
 	conflict := &store.ConflictRecord{
-		SyncPairID:  pair.ID,
-		Path:        filePath,
-		LocalMTime:  &localMeta.ModTime,
-		RemoteMTime: &remoteMeta.ModTime,
-		LocalSize:   localMeta.Size,
-		RemoteSize:  remoteMeta.Size,
-		Status:      "open",
-		Strategy:    "manual",
+		SyncPairID:   pair.ID,
+		Path:         filePath,
+		LocalMTime:   localMTime,
+		RemoteMTime:  remoteMTime,
+		LocalSize:    localSize,
+		RemoteSize:   remoteSize,
+		Status:       "open",
+		Strategy:     "manual",
+		ConflictType: conflictType,
 	}
 	if err := e.store.UpsertOpenConflict(conflict); err != nil {
 		return err
@@ -1768,10 +1840,10 @@ func (e *Engine) doRecordConflict(ctx context.Context, pair *store.SyncPair, loc
 	_ = e.store.UpsertFileEntry(&store.FileEntry{
 		Path:        filePath,
 		SyncPairID:  pair.ID,
-		LocalMTime:  &localMeta.ModTime,
-		RemoteMTime: &remoteMeta.ModTime,
-		LocalSize:   localMeta.Size,
-		RemoteSize:  remoteMeta.Size,
+		LocalMTime:  localMTime,
+		RemoteMTime: remoteMTime,
+		LocalSize:   localSize,
+		RemoteSize:  remoteSize,
 		SyncState:   "conflict",
 	})
 	_ = e.store.AddSyncStats(0, 0, 0, 0, 0, 1)

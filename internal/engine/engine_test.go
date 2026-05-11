@@ -1768,3 +1768,273 @@ func TestTwoStageHashDetection_DownloadCachesHash(t *testing.T) {
 		t.Fatal("remote hash should be cached after download")
 	}
 }
+
+// --- Edge conflict scenario tests ---
+
+// TestConflict_ModifyVsDelete tests that when the local file was modified
+// while the remote was deleted (and both were previously synced), a
+// modify_delete conflict is recorded.
+func TestConflict_ModifyVsDelete(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "file.txt", "original")
+	writeTestFile(t, remoteDir, "file.txt", "original")
+
+	pair := &store.SyncPair{
+		Name:            "modify-delete",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "mirror",
+		Direction:       "both",
+		Enabled:         true,
+		ConflictStrategy: "manual",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+
+	// First sync: file is identical on both sides, gets synced.
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "file.txt", "original")
+
+	// Now modify local and delete remote.
+	writeTestFile(t, localDir, "file.txt", "local-modified")
+	os.Remove(filepath.Join(remoteDir, "file.txt"))
+
+	// Re-register with fresh providers so scans reflect current state.
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync: local modified + remote deleted should produce modify_delete conflict.
+	runPairSync(t, eng, pair.ID, "")
+
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("conflicts = %d, want 1", len(conflicts))
+	}
+	if conflicts[0].ConflictType != "modify_delete" {
+		t.Fatalf("conflict type = %q, want %q", conflicts[0].ConflictType, "modify_delete")
+	}
+
+	// Local file should still exist (not deleted).
+	assertFileContent(t, localDir, "file.txt", "local-modified")
+}
+
+// TestConflict_DeleteVsModify tests that when the local file was deleted
+// while the remote was modified (and both were previously synced), a
+// delete_modify conflict is recorded.
+func TestConflict_DeleteVsModify(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "file.txt", "original")
+	writeTestFile(t, remoteDir, "file.txt", "original")
+
+	pair := &store.SyncPair{
+		Name:            "delete-modify",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "mirror",
+		Direction:       "both",
+		Enabled:         true,
+		ConflictStrategy: "manual",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+
+	// First sync: file is identical on both sides.
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, localDir, "file.txt", "original")
+
+	// Now delete local and modify remote.
+	os.Remove(filepath.Join(localDir, "file.txt"))
+	writeTestFile(t, remoteDir, "file.txt", "remote-modified")
+
+	// Re-register with fresh providers.
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync: local deleted + remote modified should produce delete_modify conflict.
+	runPairSync(t, eng, pair.ID, "")
+
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("conflicts = %d, want 1", len(conflicts))
+	}
+	if conflicts[0].ConflictType != "delete_modify" {
+		t.Fatalf("conflict type = %q, want %q", conflicts[0].ConflictType, "delete_modify")
+	}
+
+	// Remote file should still exist (not deleted).
+	assertFileContent(t, remoteDir, "file.txt", "remote-modified")
+}
+
+// TestConflict_BothDelete tests that when both sides delete a previously
+// synced file, the DB entry is cleaned up without any conflict.
+func TestConflict_BothDelete(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "file.txt", "original")
+	writeTestFile(t, remoteDir, "file.txt", "original")
+
+	pair := &store.SyncPair{
+		Name:       "both-delete",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+
+	// First sync: file is identical on both sides.
+	runPairSync(t, eng, pair.ID, "")
+
+	entry, err := s.GetFileEntry(pair.ID, "/file.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("entry should exist after first sync: %v", err)
+	}
+
+	// Delete on both sides.
+	os.Remove(filepath.Join(localDir, "file.txt"))
+	os.Remove(filepath.Join(remoteDir, "file.txt"))
+
+	// Re-register with fresh providers.
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync: both deleted should clean up DB, no conflict.
+	runPairSync(t, eng, pair.ID, "")
+
+	// DB entry should be gone.
+	entry, err = s.GetFileEntry(pair.ID, "/file.txt")
+	if err != nil {
+		t.Fatalf("get entry after both-delete: %v", err)
+	}
+	if entry != nil {
+		t.Fatal("entry should be nil after both sides deleted the file")
+	}
+
+	// No conflicts should have been recorded.
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %d, want 0 (both deleted should not produce conflict)", len(conflicts))
+	}
+}
+
+// TestConflict_FirstSyncSameContent tests that on first sync (no DB record),
+// if both sides have the file with identical content, no conflict or upload
+// task is generated — the file is simply marked as synced.
+func TestConflict_FirstSyncSameContent(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "same.txt", "identical-content")
+	writeTestFile(t, remoteDir, "same.txt", "identical-content")
+
+	pair := &store.SyncPair{
+		Name:       "first-sync-same",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// File should be marked as synced in the DB.
+	entry, err := s.GetFileEntry(pair.ID, "/same.txt")
+	if err != nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("entry should exist after first sync with identical content")
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("sync state = %q, want synced", entry.SyncState)
+	}
+
+	// No conflicts should be recorded.
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %d, want 0 for identical first sync", len(conflicts))
+	}
+}
+
+// TestConflict_FirstSyncDifferentContent tests that on first sync (no DB record),
+// if both sides have the file with different content, the conflict strategy
+// is applied.
+func TestConflict_FirstSyncDifferentContent(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "diff.txt", "local-content")
+	writeTestFile(t, remoteDir, "diff.txt", "remote-content")
+	// Ensure local has a newer mtime so latest_wins resolves to upload.
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(localDir, "diff.txt"), now, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("chtimes local: %v", err)
+	}
+	if err := os.Chtimes(filepath.Join(remoteDir, "diff.txt"), now, now.Add(1*time.Second)); err != nil {
+		t.Fatalf("chtimes remote: %v", err)
+	}
+
+	pair := &store.SyncPair{
+		Name:            "first-sync-diff",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "mirror",
+		Direction:       "both",
+		Enabled:         true,
+		ConflictStrategy: "manual",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// With manual strategy, a conflict should be recorded.
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("conflicts = %d, want 1 for different first sync", len(conflicts))
+	}
+
+	// Both files should remain unchanged (manual conflict does not overwrite).
+	assertFileContent(t, localDir, "diff.txt", "local-content")
+	assertFileContent(t, remoteDir, "diff.txt", "remote-content")
+}
