@@ -474,3 +474,309 @@ func TestEngineRecordsVersionBeforeOverwrite(t *testing.T) {
 		t.Fatalf("version = source %q size %d, want remote/%d", versions[0].Source, versions[0].Size, len("old"))
 	}
 }
+
+func TestNormalMode_SelectedFoldersFilter(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	writeTestFile(t, localDir, "work/report.txt", "work-report")
+	writeTestFile(t, localDir, "photos/vacation.txt", "photo")
+	writeTestFile(t, localDir, "docs/readme.txt", "docs-readme")
+	writeTestFile(t, localDir, "other/misc.txt", "misc")
+
+	pair := &store.SyncPair{
+		Name:            "normal-select",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "normal",
+		Direction:       "up",
+		Enabled:         true,
+		SelectedFolders: `["work","docs"]`,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, remoteDir, filepath.Join("work", "report.txt"), "work-report")
+	assertFileContent(t, remoteDir, filepath.Join("docs", "readme.txt"), "docs-readme")
+	assertMissing(t, remoteDir, filepath.Join("photos", "vacation.txt"))
+	assertMissing(t, remoteDir, filepath.Join("other", "misc.txt"))
+}
+
+func TestNormalMode_SelectedFoldersEmpty(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	writeTestFile(t, localDir, "work/report.txt", "work-report")
+	writeTestFile(t, localDir, "photos/vacation.txt", "photo")
+	writeTestFile(t, localDir, "docs/readme.txt", "docs-readme")
+
+	pair := &store.SyncPair{
+		Name:            "normal-empty",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "normal",
+		Direction:       "up",
+		Enabled:         true,
+		SelectedFolders: "[]",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Empty SelectedFolders = sync everything (mirror behavior)
+	assertFileContent(t, remoteDir, filepath.Join("work", "report.txt"), "work-report")
+	assertFileContent(t, remoteDir, filepath.Join("photos", "vacation.txt"), "photo")
+	assertFileContent(t, remoteDir, filepath.Join("docs", "readme.txt"), "docs-readme")
+}
+
+func TestNormalMode_SelectedFoldersParentMerge(t *testing.T) {
+	result := NormalizeSelectedFolders([]string{"docs/work/2024", "docs/work", "photos"})
+	if len(result) != 2 {
+		t.Fatalf("NormalizeSelectedFolders returned %d items, want 2: %v", len(result), result)
+	}
+	if result[0] != "docs/work" {
+		t.Fatalf("result[0] = %q, want %q", result[0], "docs/work")
+	}
+	if result[1] != "photos" {
+		t.Fatalf("result[1] = %q, want %q", result[1], "photos")
+	}
+}
+
+func TestNormalMode_SelectedFoldersParentMerge_Empty(t *testing.T) {
+	result := NormalizeSelectedFolders([]string{})
+	if len(result) != 0 {
+		t.Fatalf("NormalizeSelectedFolders returned %d items, want 0", len(result))
+	}
+
+	result = NormalizeSelectedFolders(nil)
+	if len(result) != 0 {
+		t.Fatalf("NormalizeSelectedFolders(nil) returned %d items, want 0", len(result))
+	}
+}
+
+func TestNormalMode_SelectedFoldersParentMerge_Single(t *testing.T) {
+	result := NormalizeSelectedFolders([]string{"docs"})
+	if len(result) != 1 {
+		t.Fatalf("NormalizeSelectedFolders returned %d items, want 1", len(result))
+	}
+	if result[0] != "docs" {
+		t.Fatalf("result[0] = %q, want %q", result[0], "docs")
+	}
+}
+
+func TestNormalMode_SelectedFoldersRemoval_Down(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Files on remote side for initial down sync
+	writeTestFile(t, remoteDir, "work/report.txt", "work-report")
+	writeTestFile(t, remoteDir, "photos/vacation.txt", "photo")
+
+	pair := &store.SyncPair{
+		Name:            "normal-removal",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "normal",
+		Direction:       "down",
+		Enabled:         true,
+		SelectedFolders: `["work","photos"]`,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Both folders synced to local
+	assertFileContent(t, localDir, filepath.Join("work", "report.txt"), "work-report")
+	assertFileContent(t, localDir, filepath.Join("photos", "vacation.txt"), "photo")
+
+	// Now remove "photos" from SelectedFolders
+	pair.SelectedFolders = `["work"]`
+	if err := s.UpdateSyncPair(pair); err != nil {
+		t.Fatalf("update pair: %v", err)
+	}
+
+	// Re-register pair with updated config and fresh providers
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Run sync again - photos files are filtered out of both scans so the sync
+	// does not touch them. They remain on disk as leftover synced files.
+	// A separate cleanup mechanism (not yet implemented) would handle removal.
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, localDir, filepath.Join("work", "report.txt"), "work-report")
+	// photos/vacation.txt still exists locally because the filter removes it
+	// from both scan results, so the engine never sees it to generate a delete task.
+	// The remote is also filtered, so remote copy is untouched.
+	assertFileContent(t, remoteDir, filepath.Join("photos", "vacation.txt"), "photo")
+}
+
+func TestNormalMode_MirrorAliasBackwardCompat(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	writeTestFile(t, localDir, "file.txt", "content")
+
+	// Use "mirror" mode - should still work as alias for "normal"
+	pair := &store.SyncPair{
+		Name:      "mirror-compat",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	assertFileContent(t, remoteDir, "file.txt", "content")
+}
+
+func TestNormalMode_SelectedFoldersWithNestedPaths(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	writeTestFile(t, localDir, "docs/work/2024/report.txt", "deep-report")
+	writeTestFile(t, localDir, "docs/personal/notes.txt", "personal-notes")
+	writeTestFile(t, localDir, "docs/readme.txt", "docs-readme")
+	writeTestFile(t, localDir, "other/misc.txt", "misc")
+
+	// Select only docs/work - should include nested paths
+	pair := &store.SyncPair{
+		Name:            "normal-nested",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "normal",
+		Direction:       "up",
+		Enabled:         true,
+		SelectedFolders: `["docs/work"]`,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, remoteDir, filepath.Join("docs", "work", "2024", "report.txt"), "deep-report")
+	assertMissing(t, remoteDir, filepath.Join("docs", "personal", "notes.txt"))
+	assertMissing(t, remoteDir, filepath.Join("docs", "readme.txt"))
+	assertMissing(t, remoteDir, filepath.Join("other", "misc.txt"))
+}
+
+func TestNormalMode_SelectedFoldersWithExcludePatterns(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	writeTestFile(t, localDir, "work/report.txt", "work-report")
+	writeTestFile(t, localDir, "work/temp.tmp", "temp-file")
+	writeTestFile(t, localDir, "docs/readme.txt", "docs-readme")
+	writeTestFile(t, localDir, "skip.tmp", "root-tmp")
+
+	pair := &store.SyncPair{
+		Name:            "normal-folders-patterns",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "normal",
+		Direction:       "up",
+		Enabled:         true,
+		SelectedFolders: `["work","docs"]`,
+		ExcludePatterns: "*.tmp",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	assertFileContent(t, remoteDir, filepath.Join("work", "report.txt"), "work-report")
+	assertFileContent(t, remoteDir, filepath.Join("docs", "readme.txt"), "docs-readme")
+	assertMissing(t, remoteDir, "skip.tmp")
+}
+
+func TestFilterBySelectedFolders(t *testing.T) {
+	pair := &store.SyncPair{
+		SelectedFolders: `["work","docs"]`,
+	}
+
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		{"/work/file.txt", true},
+		{"/work/sub/file.txt", true},
+		{"/docs/readme.txt", true},
+		{"/docs/sub/deep.txt", true},
+		{"/photos/img.jpg", false},
+		{"/other", false},
+	}
+
+	for _, tc := range tests {
+		got := filterBySelectedFolders(pair, tc.path)
+		if got != tc.expected {
+			t.Errorf("filterBySelectedFolders(%q) = %v, want %v", tc.path, got, tc.expected)
+		}
+	}
+}
+
+func TestFilterBySelectedFolders_Empty(t *testing.T) {
+	pair := &store.SyncPair{
+		SelectedFolders: "[]",
+	}
+	if !filterBySelectedFolders(pair, "/any/path.txt") {
+		t.Error("empty SelectedFolders should allow all paths")
+	}
+
+	pair.SelectedFolders = ""
+	if !filterBySelectedFolders(pair, "/any/path.txt") {
+		t.Error("blank SelectedFolders should allow all paths")
+	}
+}
+
+func TestIsNormalMode(t *testing.T) {
+	tests := []struct {
+		mode     string
+		expected bool
+	}{
+		{"normal", true},
+		{"mirror", true},
+		{"selective", true},
+		{"NORMAL", true},
+		{"Mirror", true},
+		{"virtual", false},
+		{"", false},
+	}
+
+	for _, tc := range tests {
+		pair := &store.SyncPair{Mode: tc.mode}
+		got := isNormalMode(pair)
+		if got != tc.expected {
+			t.Errorf("isNormalMode(%q) = %v, want %v", tc.mode, got, tc.expected)
+		}
+	}
+}

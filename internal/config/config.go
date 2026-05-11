@@ -66,7 +66,7 @@ type SyncPair struct {
 	LocalPath        string   `yaml:"local_path" json:"local_path"`
 	RemotePath       string   `yaml:"remote_path" json:"remote_path"`
 	Provider         string   `yaml:"provider" json:"provider"`
-	Mode             string   `yaml:"mode" json:"mode"`           // mirror, selective, virtual
+	Mode             string   `yaml:"mode" json:"mode"`           // normal, virtual
 	Direction        string   `yaml:"direction" json:"direction"` // up, down, both
 	Enabled          bool     `yaml:"enabled" json:"enabled"`
 	Schedule         string   `yaml:"schedule" json:"schedule"`
@@ -143,7 +143,7 @@ func GenerateExample(path string) error {
 			LocalPath:  "/home/user/photos",
 			RemotePath: "/photos",
 			Provider:   "webdav",
-			Mode:       "mirror",
+			Mode:       "normal",
 			Direction:  "both",
 			Enabled:    true,
 		},

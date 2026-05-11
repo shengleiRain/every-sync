@@ -167,7 +167,7 @@ func (h *Handler) CreatePair(w http.ResponseWriter, r *http.Request) {
 		req.Provider = "webdav"
 	}
 	if req.Mode == "" {
-		req.Mode = "mirror"
+		req.Mode = "normal"
 	}
 	if req.Direction == "" {
 		req.Direction = "both"

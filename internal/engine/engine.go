@@ -11,6 +11,7 @@ import (
 	"net/smtp"
 	"path"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -319,10 +320,9 @@ func syncPairRuntimeEqual(a, b *store.SyncPair) bool {
 		a.Schedule == b.Schedule &&
 		a.IncludePatterns == b.IncludePatterns &&
 		a.ExcludePatterns == b.ExcludePatterns &&
-		a.ConflictStrategy == b.ConflictStrategy
+		a.ConflictStrategy == b.ConflictStrategy &&
+		a.SelectedFolders == b.SelectedFolders
 }
-
-// Start launches worker goroutines and the result processor.
 func (e *Engine) Start(parent context.Context) error {
 	e.mu.Lock()
 	e.ctx, e.cancel = context.WithCancel(parent)
@@ -892,6 +892,65 @@ func isVirtualMode(pair *store.SyncPair) bool {
 	return pair != nil && strings.EqualFold(pair.Mode, "virtual")
 }
 
+// isNormalMode returns true for "normal" mode (the unified mirror+selective mode).
+// "mirror" is accepted as an alias for backward compatibility during transition.
+func isNormalMode(pair *store.SyncPair) bool {
+	if pair == nil {
+		return false
+	}
+	m := strings.ToLower(pair.Mode)
+	return m == "normal" || m == "mirror" || m == "selective"
+}
+
+// filterBySelectedFolders returns true if path should be synced based on
+// the SelectedFolders configuration. Empty SelectedFolders means all files
+// pass through (equivalent to the old mirror behavior).
+func filterBySelectedFolders(pair *store.SyncPair, relativePath string) bool {
+	if pair.SelectedFolders == "" || pair.SelectedFolders == "[]" {
+		return true
+	}
+	var folders []string
+	if err := json.Unmarshal([]byte(pair.SelectedFolders), &folders); err != nil {
+		return true // fallback to all on parse error
+	}
+	if len(folders) == 0 {
+		return true
+	}
+	cleaned := strings.TrimPrefix(path.Clean(relativePath), "/")
+	for _, f := range folders {
+		if f == "" {
+			continue
+		}
+		if cleaned == f || strings.HasPrefix(cleaned, f+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeSelectedFolders merges child paths into their parents.
+// For example: ["docs/work/2024", "docs/work"] becomes ["docs/work"].
+func NormalizeSelectedFolders(folders []string) []string {
+	sort.Strings(folders)
+	var result []string
+	for _, f := range folders {
+		if f == "" {
+			continue
+		}
+		contained := false
+		for _, existing := range result {
+			if f == existing || strings.HasPrefix(f, existing+"/") {
+				contained = true
+				break
+			}
+		}
+		if !contained {
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
 func normalizeConflictStrategy(strategy string) string {
 	switch strings.ToLower(strings.TrimSpace(strategy)) {
 	case "manual", "local_wins", "remote_wins", "latest_wins":
@@ -927,7 +986,14 @@ func timesClose(a, b time.Time) bool {
 }
 
 func filterPairFiles(pair *store.SyncPair, files []*provider.FileMeta) []*provider.FileMeta {
-	if pair == nil || (strings.TrimSpace(pair.IncludePatterns) == "" && strings.TrimSpace(pair.ExcludePatterns) == "") {
+	if pair == nil {
+		return files
+	}
+
+	hasFolderFilter := pair.SelectedFolders != "" && pair.SelectedFolders != "[]"
+	hasPatternFilter := strings.TrimSpace(pair.IncludePatterns) != "" || strings.TrimSpace(pair.ExcludePatterns) != ""
+
+	if !hasFolderFilter && !hasPatternFilter {
 		return files
 	}
 
@@ -935,7 +1001,15 @@ func filterPairFiles(pair *store.SyncPair, files []*provider.FileMeta) []*provid
 	exclude := splitPatterns(pair.ExcludePatterns)
 	filtered := make([]*provider.FileMeta, 0, len(files))
 	for _, file := range files {
-		if file == nil || !pathAllowed(file.Path, include, exclude) {
+		if file == nil {
+			continue
+		}
+		// Step 1: directory-level filter via SelectedFolders
+		if hasFolderFilter && !filterBySelectedFolders(pair, file.Path) {
+			continue
+		}
+		// Step 2: file-level filter via include/exclude patterns
+		if hasPatternFilter && !pathAllowed(file.Path, include, exclude) {
 			continue
 		}
 		filtered = append(filtered, file)
