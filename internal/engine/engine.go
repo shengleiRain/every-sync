@@ -466,6 +466,12 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 		return err
 	}
 
+	// Virtual mode always forces bidirectional sync so local uploads work
+	// alongside remote virtualization.
+	if isVirtualMode(pair) {
+		dir = DirectionBoth
+	}
+
 	e.broadcast(Event{Type: "sync_started", PairID: pair.ID, PairName: pair.Name, Direction: string(dir)})
 	if err := e.syncOnePair(ctx, pair, local, remote, dir); err != nil {
 		e.broadcast(Event{Type: "sync_failed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), Error: err.Error()})
@@ -823,8 +829,16 @@ func generateBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *
 		case localChanged && !remoteChanged:
 			return []SyncTask{newTask(TaskUpload, pair.ID, key)}
 		case !localChanged && remoteChanged:
+			// In virtual mode, re-virtualize instead of downloading when remote changes.
+			if isVirtualMode(pair) {
+				return []SyncTask{newTask(TaskVirtual, pair.ID, key)}
+			}
 			return []SyncTask{newTask(TaskDownload, pair.ID, key)}
 		default:
+			// Both changed: in virtual mode prefer uploading local change and re-virtualizing remote metadata.
+			if isVirtualMode(pair) {
+				return []SyncTask{newTask(TaskUpload, pair.ID, key)}
+			}
 			return conflictStrategyTasks(pair, key, localMeta, remoteMeta)
 		}
 	}

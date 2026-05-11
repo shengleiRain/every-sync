@@ -1201,3 +1201,269 @@ func TestDirectorySync_SelectedFoldersAppliesToDirectories(t *testing.T) {
 	assertMissing(t, remoteDir, filepath.Join("photos", "vacation.txt"))
 	assertDirMissing(t, remoteDir, "photos")
 }
+
+// --- Virtual mode tests ---
+
+func TestVirtualMode_ForcesDirectionBoth(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Remote has a file, local has nothing - virtual mode should index it.
+	// Direction is set to "up" but virtual mode should force "both" internally.
+	writeTestFile(t, remoteDir, "data.txt", "remote-data")
+
+	pair := &store.SyncPair{
+		Name:      "virtual-force-both",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "virtual",
+		Direction: "up",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// The remote file should be indexed as virtual (not downloaded)
+	assertMissing(t, localDir, "data.txt")
+	entry, err := s.GetFileEntry(pair.ID, "/data.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get virtual entry: %v", err)
+	}
+	if entry.SyncState != "virtual" {
+		t.Fatalf("sync state = %q, want virtual", entry.SyncState)
+	}
+}
+
+func TestVirtualMode_LocalUploadWorks(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Local has a new file that should be uploaded
+	writeTestFile(t, localDir, "local.txt", "local-content")
+	// Remote has a file that should be virtualized (not downloaded)
+	writeTestFile(t, remoteDir, "remote.txt", "remote-content")
+
+	pair := &store.SyncPair{
+		Name:      "virtual-upload",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "virtual",
+		Direction: "down", // Even with "down" direction, virtual mode forces "both"
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Local file should have been uploaded to remote
+	assertFileContent(t, remoteDir, "local.txt", "local-content")
+
+	// Remote file should be virtual (not downloaded)
+	assertMissing(t, localDir, "remote.txt")
+	entry, err := s.GetFileEntry(pair.ID, "/remote.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get remote entry: %v", err)
+	}
+	if entry.SyncState != "virtual" {
+		t.Fatalf("remote sync state = %q, want virtual", entry.SyncState)
+	}
+}
+
+func TestVirtualMode_RemoteChangeReVirtualizes(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Both sides have the same file initially
+	writeTestFile(t, localDir, "shared.txt", "original")
+	writeTestFile(t, remoteDir, "shared.txt", "original")
+
+	pair := &store.SyncPair{
+		Name:      "virtual-revirt",
+		LocalPath: localDir,
+		RemotePath: remoteDir,
+		Provider:  "local",
+		Mode:      "mirror",
+		Direction: "both",
+		Enabled:   true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+
+	// First sync in normal mode: file is identical on both sides, gets indexed as synced
+	runPairSync(t, eng, pair.ID, "")
+	entry, err := s.GetFileEntry(pair.ID, "/shared.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry after first sync: %v", err)
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("sync state after first sync = %q, want synced", entry.SyncState)
+	}
+
+	// Now switch to virtual mode
+	pair.Mode = "virtual"
+	if err := s.UpdateSyncPair(pair); err != nil {
+		t.Fatalf("update pair to virtual: %v", err)
+	}
+
+	// Modify the file on remote side
+	writeTestFile(t, remoteDir, "shared.txt", "remote-updated")
+
+	// Re-register with fresh providers so the remote scan sees the new content
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync: remote changed, should re-virtualize (NOT download)
+	runPairSync(t, eng, pair.ID, "")
+
+	// Local file should still have the original content (not overwritten)
+	assertFileContent(t, localDir, "shared.txt", "original")
+
+	// DB entry should now be virtual
+	entry, err = s.GetFileEntry(pair.ID, "/shared.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry after re-virtualization: %v", err)
+	}
+	if entry.SyncState != "virtual" {
+		t.Fatalf("sync state after re-virtualization = %q, want virtual", entry.SyncState)
+	}
+
+	// Remote metadata should be updated
+	if entry.RemoteSize != int64(len("remote-updated")) {
+		t.Fatalf("remote size = %d, want %d", entry.RemoteSize, len("remote-updated"))
+	}
+}
+
+func TestVirtualMode_SelectedFoldersFiltering(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Remote has files in multiple folders
+	writeTestFile(t, remoteDir, "work/report.txt", "work-report")
+	writeTestFile(t, remoteDir, "photos/vacation.txt", "photo")
+	writeTestFile(t, remoteDir, "docs/readme.txt", "docs-readme")
+
+	// Only "work" folder is selected
+	pair := &store.SyncPair{
+		Name:            "virtual-filter",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "virtual",
+		Direction:       "down",
+		Enabled:         true,
+		SelectedFolders: `["work"]`,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	// Only work/report.txt should be indexed as virtual
+	entry, err := s.GetFileEntry(pair.ID, "/work/report.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get work entry: %v", err)
+	}
+	if entry.SyncState != "virtual" {
+		t.Fatalf("work sync state = %q, want virtual", entry.SyncState)
+	}
+
+	// photos/vacation.txt should not be indexed (filtered out)
+	photoEntry, _ := s.GetFileEntry(pair.ID, "/photos/vacation.txt")
+	if photoEntry != nil {
+		t.Fatal("photos/vacation.txt should not be indexed, but found entry")
+	}
+
+	// docs/readme.txt should not be indexed (filtered out)
+	docsEntry, _ := s.GetFileEntry(pair.ID, "/docs/readme.txt")
+	if docsEntry != nil {
+		t.Fatal("docs/readme.txt should not be indexed, but found entry")
+	}
+
+	// Nothing should be downloaded
+	assertMissing(t, localDir, "work/report.txt")
+	assertMissing(t, localDir, filepath.Join("photos", "vacation.txt"))
+	assertMissing(t, localDir, filepath.Join("docs", "readme.txt"))
+}
+
+func TestVirtualMode_BothChanged_UploadWinsOverConflict(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	// Both sides have the same file initially
+	writeTestFile(t, localDir, "both.txt", "original")
+	writeTestFile(t, remoteDir, "both.txt", "original")
+
+	pair := &store.SyncPair{
+		Name:            "virtual-both-change",
+		LocalPath:       localDir,
+		RemotePath:      remoteDir,
+		Provider:        "local",
+		Mode:            "mirror",
+		Direction:       "both",
+		Enabled:         true,
+		ConflictStrategy: "latest_wins",
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+
+	// First sync in normal mode to establish "synced" state
+	runPairSync(t, eng, pair.ID, "")
+
+	// Verify synced state
+	entry, err := s.GetFileEntry(pair.ID, "/both.txt")
+	if err != nil || entry == nil {
+		t.Fatalf("get entry after first sync: %v", err)
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("sync state = %q, want synced", entry.SyncState)
+	}
+
+	// Now switch to virtual mode
+	pair.Mode = "virtual"
+	if err := s.UpdateSyncPair(pair); err != nil {
+		t.Fatalf("update pair to virtual: %v", err)
+	}
+
+	// Both sides modify the file
+	writeTestFile(t, localDir, "both.txt", "local-change")
+	writeTestFile(t, remoteDir, "both.txt", "remote-change")
+
+	// Re-register with fresh providers and updated pair config
+	eng.RegisterPair(pair, newTestLocalProvider(t, pair.LocalPath), newTestLocalProvider(t, pair.RemotePath))
+
+	// Second sync: both changed, virtual mode should upload local (not create conflict)
+	runPairSync(t, eng, pair.ID, "")
+
+	// Remote should have local's content (upload wins)
+	assertFileContent(t, remoteDir, "both.txt", "local-change")
+
+	// No new conflicts should be recorded
+	conflicts, err := s.ListConflicts(pair.ID, "open")
+	if err != nil {
+		t.Fatalf("list conflicts: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %d, want 0 (virtual mode should not create conflicts)", len(conflicts))
+	}
+}
