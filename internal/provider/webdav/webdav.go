@@ -210,6 +210,30 @@ func (w *WebDAVProvider) GetChangeToken(_ context.Context, remotePath string) (s
 	return stat.ModTime().Format(time.RFC3339Nano), nil
 }
 
+// IncrementalList checks whether a directory has changed since the last scan.
+// If the directory's ModTime (used as pseudo-ETag) matches cachedTag, it returns
+// (nil, true, nil) indicating no change. Otherwise it lists the directory contents.
+func (w *WebDAVProvider) IncrementalList(_ context.Context, remotePath string, cachedTag string) ([]*provider.FileMeta, bool, error) {
+	// Stat the directory itself to get its current "tag" (ModTime)
+	meta, err := w.Stat(context.Background(), remotePath)
+	if err != nil {
+		return nil, false, err
+	}
+
+	currentTag := meta.ModTime.Format(time.RFC3339Nano)
+	if cachedTag != "" && currentTag == cachedTag {
+		return nil, true, nil // unchanged
+	}
+
+	// Changed (or first scan) -> list contents
+	files, err := w.ListDir(context.Background(), remotePath)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return files, false, nil
+}
+
 func (w *WebDAVProvider) resolve(remotePath string) string {
 	cleaned := path.Clean(remotePath)
 	if w.prefix != "" {

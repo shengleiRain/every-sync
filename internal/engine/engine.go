@@ -642,7 +642,10 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 		return fmt.Errorf("scan local: %w", err)
 	}
 
-	remoteFiles, err = e.scanRecursive(ctx, remote, "/")
+	// Attempt incremental scan for remote side.
+	// If the remote root's tag matches the cached value, skip the full remote scan
+	// and reconstruct file list from DB entries.
+	remoteFiles, err = e.scanRemote(ctx, remote, pair)
 	if err != nil {
 		return fmt.Errorf("scan remote: %w", err)
 	}
@@ -733,6 +736,68 @@ func (e *Engine) scanRecursive(ctx context.Context, p provider.Provider, rootPat
 			}
 			result = append(result, entry)
 		}
+	}
+
+	return result, nil
+}
+
+// scanRemote attempts an incremental scan for the remote provider.
+// If the remote implements IncrementalLister and the root directory's tag matches
+// the cached value, the full remote scan is skipped and the file list is
+// reconstructed from DB entries. Otherwise a full recursive scan is performed.
+func (e *Engine) scanRemote(ctx context.Context, remote provider.Provider, pair *store.SyncPair) ([]*provider.FileMeta, error) {
+	lister, ok := remote.(provider.IncrementalLister)
+	if !ok {
+		return e.scanRecursive(ctx, remote, "/")
+	}
+
+	// Look up the cached root ETag from DB entries.
+	// We store the root directory's tag as the RemoteEtag of the "/" entry.
+	cachedTag := ""
+	rootEntry, err := e.store.GetFileEntry(pair.ID, "/")
+	if err == nil && rootEntry != nil && rootEntry.RemoteEtag != "" {
+		cachedTag = rootEntry.RemoteEtag
+	}
+
+	_, unchanged, err := lister.IncrementalList(ctx, "/", cachedTag)
+	if err != nil {
+		return e.scanRecursive(ctx, remote, "/")
+	}
+
+	if !unchanged {
+		// Root changed (or first scan) — update the cached tag and do a full
+		// recursive scan so we also traverse subdirectories.
+		tag, tagErr := remote.GetChangeToken(ctx, "/")
+		if tagErr == nil {
+			e.store.UpsertFileEntry(&store.FileEntry{
+				Path:       "/",
+				SyncPairID: pair.ID,
+				RemoteEtag: tag,
+				IsDir:      true,
+				SyncState:  "synced",
+			})
+		}
+		return e.scanRecursive(ctx, remote, "/")
+	}
+
+	// Root unchanged — reconstruct file list from DB.
+	logger.L.Info().Str("pair", pair.Name).Msg("remote root unchanged, using cached entries")
+	dbEntries, err := e.store.ListFileEntriesByPair(pair.ID)
+	if err != nil {
+		return e.scanRecursive(ctx, remote, "/")
+	}
+
+	result := make([]*provider.FileMeta, 0, len(dbEntries))
+	for _, entry := range dbEntries {
+		meta := &provider.FileMeta{
+			Path:    entry.Path,
+			IsDir:   entry.IsDir,
+			Size:    entry.RemoteSize,
+		}
+		if entry.RemoteMTime != nil {
+			meta.ModTime = *entry.RemoteMTime
+		}
+		result = append(result, meta)
 	}
 
 	return result, nil
@@ -1956,19 +2021,60 @@ func (e *Engine) processResults() {
 func (e *Engine) periodicScan() {
 	defer e.wg.Done()
 
-	ticker := time.NewTicker(e.config.ScanInterval)
+	// Use a 30-second base tick so we can check each pair's individual interval.
+	// Pairs with shorter intervals are still respected; pairs with longer intervals
+	// simply skip ticks until their interval elapses.
+	baseInterval := e.config.ScanInterval
+	if baseInterval > 30*time.Second {
+		baseInterval = 30 * time.Second
+	}
+	ticker := time.NewTicker(baseInterval)
 	defer ticker.Stop()
+
+	// Track last scan time per pair.
+	lastScan := make(map[int64]time.Time)
 
 	for {
 		select {
 		case <-e.ctx.Done():
 			return
 		case <-ticker.C:
-			logger.L.Debug().Msg("periodic scan triggered")
+			logger.L.Debug().Msg("periodic scan tick")
 			if err := e.RefreshPairs(); err != nil {
 				logger.L.Error().Err(err).Msg("refresh pairs failed")
 			}
-			_ = e.SyncAll(e.ctx)
+
+			e.mu.RLock()
+			pairIDs := make([]int64, 0, len(e.pairs))
+			for id := range e.pairs {
+				pairIDs = append(pairIDs, id)
+			}
+			e.mu.RUnlock()
+
+			now := time.Now()
+			for _, id := range pairIDs {
+				e.mu.RLock()
+				pair := e.pairs[id]
+				e.mu.RUnlock()
+				if pair == nil {
+					continue
+				}
+
+				// Determine effective scan interval: use per-pair value if set,
+				// otherwise fall back to the global config.
+				interval := e.config.ScanInterval
+				if pair.ScanInterval > 0 {
+					interval = time.Duration(pair.ScanInterval) * time.Second
+				}
+
+				last := lastScan[id]
+				if now.Sub(last) >= interval {
+					lastScan[id] = now
+					if err := e.SyncPair(e.ctx, id, ""); err != nil {
+						logger.L.Error().Err(err).Int64("pair_id", id).Msg("periodic sync pair failed")
+					}
+				}
+			}
 		}
 	}
 }

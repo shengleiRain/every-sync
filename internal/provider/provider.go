@@ -85,6 +85,15 @@ type Provider interface {
 	GetChangeToken(ctx context.Context, path string) (string, error)
 }
 
+// IncrementalLister is an optional interface for providers that support
+// efficient change detection via ETags or similar tokens.
+type IncrementalLister interface {
+	// IncrementalList returns directory contents with change detection.
+	// If the directory's tag matches cachedTag, returns (nil, true, nil) meaning unchanged.
+	// Otherwise returns the directory listing and false.
+	IncrementalList(ctx context.Context, path string, cachedTag string) ([]*FileMeta, bool, error)
+}
+
 // Capabilities describe optional transport features a provider can expose.
 type Capabilities struct {
 	RangeRead   bool `json:"range_read"`
