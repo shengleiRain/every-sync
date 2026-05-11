@@ -158,6 +158,8 @@ type FileEntry struct {
 	RemoteSize  int64      `json:"remote_size"`
 	SyncState   string     `json:"sync_state"`
 	Version     int        `json:"version"`
+	RemoteEtag  string     `json:"remote_etag"`
+	IsDir       bool       `json:"is_dir"`
 }
 
 // SyncPair represents a sync pair configuration stored in the database.
@@ -174,6 +176,8 @@ type SyncPair struct {
 	IncludePatterns  string    `json:"include_patterns"`
 	ExcludePatterns  string    `json:"exclude_patterns"`
 	ConflictStrategy string    `json:"conflict_strategy"`
+	SelectedFolders  string    `json:"selected_folders"`
+	ScanInterval     int       `json:"scan_interval"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -195,11 +199,17 @@ func (s *Store) CreateSyncPair(pair *SyncPair) error {
 	if pair.ConflictStrategy == "" {
 		pair.ConflictStrategy = "latest_wins"
 	}
+	if pair.SelectedFolders == "" {
+		pair.SelectedFolders = "[]"
+	}
+	if pair.ScanInterval == 0 {
+		pair.ScanInterval = 300
+	}
 	result, err := s.db.Exec(
-		`INSERT INTO sync_pairs (name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sync_pairs (name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy, selected_folders, scan_interval)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		pair.Name, pair.LocalPath, pair.RemotePath, pair.Provider, pair.Mode, pair.Direction, pair.Enabled, pair.Schedule,
-		pair.IncludePatterns, pair.ExcludePatterns, pair.ConflictStrategy,
+		pair.IncludePatterns, pair.ExcludePatterns, pair.ConflictStrategy, pair.SelectedFolders, pair.ScanInterval,
 	)
 	if err != nil {
 		return fmt.Errorf("create sync pair: %w", err)
@@ -211,11 +221,11 @@ func (s *Store) CreateSyncPair(pair *SyncPair) error {
 func (s *Store) GetSyncPair(id int64) (*SyncPair, error) {
 	pair := &SyncPair{}
 	err := s.db.QueryRow(
-		`SELECT id, name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy, created_at, updated_at
+		`SELECT id, name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy, selected_folders, scan_interval, created_at, updated_at
 		 FROM sync_pairs WHERE id = ?`, id,
 	).Scan(&pair.ID, &pair.Name, &pair.LocalPath, &pair.RemotePath, &pair.Provider,
 		&pair.Mode, &pair.Direction, &pair.Enabled, &pair.Schedule, &pair.IncludePatterns, &pair.ExcludePatterns,
-		&pair.ConflictStrategy, &pair.CreatedAt, &pair.UpdatedAt)
+		&pair.ConflictStrategy, &pair.SelectedFolders, &pair.ScanInterval, &pair.CreatedAt, &pair.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -228,11 +238,11 @@ func (s *Store) GetSyncPair(id int64) (*SyncPair, error) {
 func (s *Store) GetSyncPairByName(name string) (*SyncPair, error) {
 	pair := &SyncPair{}
 	err := s.db.QueryRow(
-		`SELECT id, name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy, created_at, updated_at
+		`SELECT id, name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy, selected_folders, scan_interval, created_at, updated_at
 		 FROM sync_pairs WHERE name = ?`, name,
 	).Scan(&pair.ID, &pair.Name, &pair.LocalPath, &pair.RemotePath, &pair.Provider,
 		&pair.Mode, &pair.Direction, &pair.Enabled, &pair.Schedule, &pair.IncludePatterns, &pair.ExcludePatterns,
-		&pair.ConflictStrategy, &pair.CreatedAt, &pair.UpdatedAt)
+		&pair.ConflictStrategy, &pair.SelectedFolders, &pair.ScanInterval, &pair.CreatedAt, &pair.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -244,7 +254,7 @@ func (s *Store) GetSyncPairByName(name string) (*SyncPair, error) {
 
 func (s *Store) ListSyncPairs() ([]*SyncPair, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy, created_at, updated_at
+		`SELECT id, name, local_path, remote_path, provider, mode, direction, enabled, schedule, include_patterns, exclude_patterns, conflict_strategy, selected_folders, scan_interval, created_at, updated_at
 		 FROM sync_pairs ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -256,7 +266,7 @@ func (s *Store) ListSyncPairs() ([]*SyncPair, error) {
 		pair := &SyncPair{}
 		if err := rows.Scan(&pair.ID, &pair.Name, &pair.LocalPath, &pair.RemotePath, &pair.Provider,
 			&pair.Mode, &pair.Direction, &pair.Enabled, &pair.Schedule, &pair.IncludePatterns, &pair.ExcludePatterns,
-			&pair.ConflictStrategy, &pair.CreatedAt, &pair.UpdatedAt); err != nil {
+			&pair.ConflictStrategy, &pair.SelectedFolders, &pair.ScanInterval, &pair.CreatedAt, &pair.UpdatedAt); err != nil {
 			return nil, err
 		}
 		pairs = append(pairs, pair)
@@ -268,11 +278,17 @@ func (s *Store) UpdateSyncPair(pair *SyncPair) error {
 	if pair.ConflictStrategy == "" {
 		pair.ConflictStrategy = "latest_wins"
 	}
+	if pair.SelectedFolders == "" {
+		pair.SelectedFolders = "[]"
+	}
+	if pair.ScanInterval == 0 {
+		pair.ScanInterval = 300
+	}
 	_, err := s.db.Exec(
-		`UPDATE sync_pairs SET name=?, local_path=?, remote_path=?, provider=?, mode=?, direction=?, enabled=?, schedule=?, include_patterns=?, exclude_patterns=?, conflict_strategy=?, updated_at=CURRENT_TIMESTAMP
+		`UPDATE sync_pairs SET name=?, local_path=?, remote_path=?, provider=?, mode=?, direction=?, enabled=?, schedule=?, include_patterns=?, exclude_patterns=?, conflict_strategy=?, selected_folders=?, scan_interval=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id = ?`,
 		pair.Name, pair.LocalPath, pair.RemotePath, pair.Provider, pair.Mode, pair.Direction, pair.Enabled, pair.Schedule,
-		pair.IncludePatterns, pair.ExcludePatterns, pair.ConflictStrategy, pair.ID)
+		pair.IncludePatterns, pair.ExcludePatterns, pair.ConflictStrategy, pair.SelectedFolders, pair.ScanInterval, pair.ID)
 	return err
 }
 
@@ -292,8 +308,8 @@ func (s *Store) DeleteSyncPair(id int64) error {
 
 func (s *Store) UpsertFileEntry(entry *FileEntry) error {
 	_, err := s.db.Exec(
-		`INSERT INTO file_entries (path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+		`INSERT INTO file_entries (path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version, remote_etag, is_dir)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
 		 ON CONFLICT(path, sync_pair_id) DO UPDATE SET
 		   local_hash=excluded.local_hash,
 		   remote_hash=excluded.remote_hash,
@@ -303,9 +319,12 @@ func (s *Store) UpsertFileEntry(entry *FileEntry) error {
 		   remote_size=excluded.remote_size,
 		   sync_state=excluded.sync_state,
 		   version=version+1,
+		   remote_etag=excluded.remote_etag,
+		   is_dir=excluded.is_dir,
 		   updated_at=CURRENT_TIMESTAMP`,
 		entry.Path, entry.SyncPairID, entry.LocalHash, entry.RemoteHash,
 		entry.LocalMTime, entry.RemoteMTime, entry.LocalSize, entry.RemoteSize, entry.SyncState,
+		entry.RemoteEtag, entry.IsDir,
 	)
 	return err
 }
@@ -313,10 +332,11 @@ func (s *Store) UpsertFileEntry(entry *FileEntry) error {
 func (s *Store) GetFileEntry(pairID int64, path string) (*FileEntry, error) {
 	entry := &FileEntry{}
 	err := s.db.QueryRow(
-		`SELECT id, path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version
+		`SELECT id, path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version, remote_etag, is_dir
 		 FROM file_entries WHERE sync_pair_id = ? AND path = ?`, pairID, path,
 	).Scan(&entry.ID, &entry.Path, &entry.SyncPairID, &entry.LocalHash, &entry.RemoteHash,
-		&entry.LocalMTime, &entry.RemoteMTime, &entry.LocalSize, &entry.RemoteSize, &entry.SyncState, &entry.Version)
+		&entry.LocalMTime, &entry.RemoteMTime, &entry.LocalSize, &entry.RemoteSize, &entry.SyncState, &entry.Version,
+		&entry.RemoteEtag, &entry.IsDir)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -328,7 +348,7 @@ func (s *Store) GetFileEntry(pairID int64, path string) (*FileEntry, error) {
 
 func (s *Store) ListFileEntriesByPair(pairID int64) ([]*FileEntry, error) {
 	rows, err := s.db.Query(
-		`SELECT id, path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version
+		`SELECT id, path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version, remote_etag, is_dir
 		 FROM file_entries WHERE sync_pair_id = ? ORDER BY path`, pairID)
 	if err != nil {
 		return nil, err
@@ -339,7 +359,8 @@ func (s *Store) ListFileEntriesByPair(pairID int64) ([]*FileEntry, error) {
 	for rows.Next() {
 		entry := &FileEntry{}
 		if err := rows.Scan(&entry.ID, &entry.Path, &entry.SyncPairID, &entry.LocalHash, &entry.RemoteHash,
-			&entry.LocalMTime, &entry.RemoteMTime, &entry.LocalSize, &entry.RemoteSize, &entry.SyncState, &entry.Version); err != nil {
+			&entry.LocalMTime, &entry.RemoteMTime, &entry.LocalSize, &entry.RemoteSize, &entry.SyncState, &entry.Version,
+			&entry.RemoteEtag, &entry.IsDir); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
@@ -349,7 +370,7 @@ func (s *Store) ListFileEntriesByPair(pairID int64) ([]*FileEntry, error) {
 
 func (s *Store) ListFileEntriesByState(pairID int64, state string) ([]*FileEntry, error) {
 	rows, err := s.db.Query(
-		`SELECT id, path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version
+		`SELECT id, path, sync_pair_id, local_hash, remote_hash, local_mtime, remote_mtime, local_size, remote_size, sync_state, version, remote_etag, is_dir
 		 FROM file_entries WHERE sync_pair_id = ? AND sync_state = ? ORDER BY path`, pairID, state)
 	if err != nil {
 		return nil, err
@@ -360,7 +381,8 @@ func (s *Store) ListFileEntriesByState(pairID int64, state string) ([]*FileEntry
 	for rows.Next() {
 		entry := &FileEntry{}
 		if err := rows.Scan(&entry.ID, &entry.Path, &entry.SyncPairID, &entry.LocalHash, &entry.RemoteHash,
-			&entry.LocalMTime, &entry.RemoteMTime, &entry.LocalSize, &entry.RemoteSize, &entry.SyncState, &entry.Version); err != nil {
+			&entry.LocalMTime, &entry.RemoteMTime, &entry.LocalSize, &entry.RemoteSize, &entry.SyncState, &entry.Version,
+			&entry.RemoteEtag, &entry.IsDir); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
@@ -473,18 +495,21 @@ func (s *Store) ListFileVersions(pairID int64, filePath string) ([]*FileVersion,
 
 // ConflictRecord stores a manual or detected sync conflict.
 type ConflictRecord struct {
-	ID          int64      `json:"id"`
-	SyncPairID  int64      `json:"sync_pair_id"`
-	Path        string     `json:"path"`
-	LocalMTime  *time.Time `json:"local_mtime,omitempty"`
-	RemoteMTime *time.Time `json:"remote_mtime,omitempty"`
-	LocalSize   int64      `json:"local_size"`
-	RemoteSize  int64      `json:"remote_size"`
-	Status      string     `json:"status"`
-	Strategy    string     `json:"strategy"`
-	Resolution  string     `json:"resolution"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID           int64      `json:"id"`
+	SyncPairID   int64      `json:"sync_pair_id"`
+	Path         string     `json:"path"`
+	LocalMTime   *time.Time `json:"local_mtime,omitempty"`
+	RemoteMTime  *time.Time `json:"remote_mtime,omitempty"`
+	LocalSize    int64      `json:"local_size"`
+	RemoteSize   int64      `json:"remote_size"`
+	Status       string     `json:"status"`
+	Strategy     string     `json:"strategy"`
+	Resolution   string     `json:"resolution"`
+	ConflictType string     `json:"conflict_type"`
+	LocalHash    string     `json:"local_hash"`
+	RemoteHash   string     `json:"remote_hash"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 func (s *Store) UpsertOpenConflict(conflict *ConflictRecord) error {
@@ -494,18 +519,25 @@ func (s *Store) UpsertOpenConflict(conflict *ConflictRecord) error {
 	if conflict.Strategy == "" {
 		conflict.Strategy = "manual"
 	}
+	if conflict.ConflictType == "" {
+		conflict.ConflictType = "modify_modify"
+	}
 	result, err := s.db.Exec(
-		`INSERT INTO conflicts (sync_pair_id, path, local_mtime, remote_mtime, local_size, remote_size, status, strategy, resolution)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO conflicts (sync_pair_id, path, local_mtime, remote_mtime, local_size, remote_size, status, strategy, resolution, conflict_type, local_hash, remote_hash)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(sync_pair_id, path) WHERE status = 'open' DO UPDATE SET
 		   local_mtime=excluded.local_mtime,
 		   remote_mtime=excluded.remote_mtime,
 		   local_size=excluded.local_size,
 		   remote_size=excluded.remote_size,
 		   strategy=excluded.strategy,
+		   conflict_type=excluded.conflict_type,
+		   local_hash=excluded.local_hash,
+		   remote_hash=excluded.remote_hash,
 		   updated_at=CURRENT_TIMESTAMP`,
 		conflict.SyncPairID, conflict.Path, conflict.LocalMTime, conflict.RemoteMTime, conflict.LocalSize,
 		conflict.RemoteSize, conflict.Status, conflict.Strategy, conflict.Resolution,
+		conflict.ConflictType, conflict.LocalHash, conflict.RemoteHash,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert conflict: %w", err)
@@ -517,10 +549,11 @@ func (s *Store) UpsertOpenConflict(conflict *ConflictRecord) error {
 func (s *Store) GetConflict(id int64) (*ConflictRecord, error) {
 	conflict := &ConflictRecord{}
 	err := s.db.QueryRow(
-		`SELECT id, sync_pair_id, path, local_mtime, remote_mtime, local_size, remote_size, status, strategy, resolution, created_at, updated_at
+		`SELECT id, sync_pair_id, path, local_mtime, remote_mtime, local_size, remote_size, status, strategy, resolution, conflict_type, local_hash, remote_hash, created_at, updated_at
 		 FROM conflicts WHERE id = ?`, id,
 	).Scan(&conflict.ID, &conflict.SyncPairID, &conflict.Path, &conflict.LocalMTime, &conflict.RemoteMTime,
 		&conflict.LocalSize, &conflict.RemoteSize, &conflict.Status, &conflict.Strategy, &conflict.Resolution,
+		&conflict.ConflictType, &conflict.LocalHash, &conflict.RemoteHash,
 		&conflict.CreatedAt, &conflict.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -532,7 +565,7 @@ func (s *Store) GetConflict(id int64) (*ConflictRecord, error) {
 }
 
 func (s *Store) ListConflicts(pairID int64, status string) ([]*ConflictRecord, error) {
-	query := `SELECT id, sync_pair_id, path, local_mtime, remote_mtime, local_size, remote_size, status, strategy, resolution, created_at, updated_at
+	query := `SELECT id, sync_pair_id, path, local_mtime, remote_mtime, local_size, remote_size, status, strategy, resolution, conflict_type, local_hash, remote_hash, created_at, updated_at
 		FROM conflicts WHERE 1=1`
 	var args []interface{}
 	if pairID > 0 {
@@ -556,6 +589,7 @@ func (s *Store) ListConflicts(pairID int64, status string) ([]*ConflictRecord, e
 		conflict := &ConflictRecord{}
 		if err := rows.Scan(&conflict.ID, &conflict.SyncPairID, &conflict.Path, &conflict.LocalMTime, &conflict.RemoteMTime,
 			&conflict.LocalSize, &conflict.RemoteSize, &conflict.Status, &conflict.Strategy, &conflict.Resolution,
+			&conflict.ConflictType, &conflict.LocalHash, &conflict.RemoteHash,
 			&conflict.CreatedAt, &conflict.UpdatedAt); err != nil {
 			return nil, err
 		}
