@@ -93,3 +93,6 @@ func (f *fakeEngine) Status() syncengine.Status                            { ret
 func (f *fakeEngine) Subscribe(context.Context) <-chan syncengine.Event {
 	return make(chan syncengine.Event)
 }
+func (f *fakeEngine) ListPairFiles(context.Context, int64, string, string) ([]*syncengine.FileListEntry, error) {
+	return nil, nil
+}

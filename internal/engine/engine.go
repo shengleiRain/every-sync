@@ -48,6 +48,25 @@ const (
 
 const partialSuffix = ".every-sync.part"
 
+// FileListEntry represents a single file or directory entry in a file listing response.
+type FileListEntry struct {
+	Name       string     `json:"name"`
+	Path       string     `json:"path"`
+	Size       int64      `json:"size"`
+	ModTime    *time.Time `json:"mod_time,omitempty"`
+	IsDir      bool       `json:"is_dir"`
+	SyncState  string     `json:"sync_state"`
+	LocalHash  string     `json:"local_hash,omitempty"`
+	RemoteHash string     `json:"remote_hash,omitempty"`
+	Selected   bool       `json:"selected,omitempty"` // only meaningful for directories
+}
+
+// FileListResponse is the JSON response for the file listing API.
+type FileListResponse struct {
+	Path    string           `json:"path"`
+	Entries []*FileListEntry `json:"entries"`
+}
+
 type SyncTask struct {
 	ID           string
 	Type         TaskType
@@ -328,6 +347,82 @@ func syncPairRuntimeEqual(a, b *store.SyncPair) bool {
 		a.ConflictStrategy == b.ConflictStrategy &&
 		a.SelectedFolders == b.SelectedFolders
 }
+// ListPairFiles returns a one-level-deep file listing for the given pair and directory path.
+// The side parameter determines which provider to query ("local" or "remote").
+// Each entry includes sync state from the database and selected status for directories.
+func (e *Engine) ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*FileListEntry, error) {
+	e.mu.RLock()
+	pair := e.pairs[pairID]
+	var p provider.Provider
+	if side == "remote" {
+		p = e.remotes[pairID]
+	} else {
+		p = e.locals[pairID]
+	}
+	e.mu.RUnlock()
+
+	if pair == nil || p == nil {
+		return nil, fmt.Errorf("pair %d not found or not enabled", pairID)
+	}
+
+	entries, err := p.ListDir(ctx, dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("list directory %s: %w", dirPath, err)
+	}
+
+	// Load DB entries to get sync_state for each file.
+	dbEntries, _ := e.store.ListFileEntriesByPair(pairID)
+	entryMap := make(map[string]*store.FileEntry, len(dbEntries))
+	for _, de := range dbEntries {
+		entryMap[path.Clean(de.Path)] = de
+	}
+
+	// Parse selected folders for directory selection markers.
+	var selectedFolders []string
+	if pair.SelectedFolders != "" && pair.SelectedFolders != "[]" {
+		_ = json.Unmarshal([]byte(pair.SelectedFolders), &selectedFolders)
+	}
+
+	result := make([]*FileListEntry, 0, len(entries))
+	for _, meta := range entries {
+		key := path.Clean(meta.Path)
+		dbEntry := entryMap[key]
+
+		fle := &FileListEntry{
+			Name:    path.Base(key),
+			Path:    key,
+			Size:    meta.Size,
+			ModTime: &meta.ModTime,
+			IsDir:   meta.IsDir,
+		}
+
+		if dbEntry != nil {
+			fle.SyncState = dbEntry.SyncState
+			fle.LocalHash = dbEntry.LocalHash
+			fle.RemoteHash = dbEntry.RemoteHash
+		}
+
+		if meta.IsDir {
+			for _, f := range selectedFolders {
+				if f == "" {
+					continue
+				}
+				// Mark selected if the folder matches a selected folder exactly,
+				// is a parent of a selected folder, or is itself a selected folder.
+				cleanKey := strings.TrimPrefix(key, "/")
+				if cleanKey == f || strings.HasPrefix(f, cleanKey+"/") || strings.HasPrefix(cleanKey, f+"/") {
+					fle.Selected = true
+					break
+				}
+			}
+		}
+
+		result = append(result, fle)
+	}
+
+	return result, nil
+}
+
 func (e *Engine) Start(parent context.Context) error {
 	e.mu.Lock()
 	e.ctx, e.cancel = context.WithCancel(parent)

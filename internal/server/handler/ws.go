@@ -28,6 +28,7 @@ type Handler struct {
 		ResolveConflict(ctx context.Context, conflictID int64, strategy string) error
 		Status() syncengine.Status
 		Subscribe(ctx context.Context) <-chan syncengine.Event
+		ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
 	}
 }
 
@@ -40,6 +41,7 @@ func New(s *store.Store, e interface {
 	ResolveConflict(ctx context.Context, conflictID int64, strategy string) error
 	Status() syncengine.Status
 	Subscribe(ctx context.Context) <-chan syncengine.Event
+	ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
 }) *Handler {
 	return &Handler{store: s, engine: e}
 }
@@ -268,18 +270,96 @@ func (h *Handler) MaterializePairFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "materialized"})
 }
 
+func (h *Handler) ListPairFiles(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pair id")
+		return
+	}
+
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		dirPath = "/"
+	}
+	side := r.URL.Query().Get("side")
+	if side == "" {
+		side = "local"
+	}
+
+	entries, err := h.engine.ListPairFiles(r.Context(), id, dirPath, side)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, syncengine.FileListResponse{
+		Path:    dirPath,
+		Entries: entries,
+	})
+}
+
+type SelectFoldersRequest struct {
+	SelectedFolders []string `json:"selected_folders"`
+}
+
+func (h *Handler) SelectFolders(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pair id")
+		return
+	}
+
+	pair, err := h.store.GetSyncPair(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if pair == nil {
+		writeError(w, http.StatusNotFound, "pair not found")
+		return
+	}
+
+	var req SelectFoldersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	normalized := syncengine.NormalizeSelectedFolders(req.SelectedFolders)
+	jsonBytes, jsonErr := json.Marshal(normalized)
+	if jsonErr != nil {
+		writeError(w, http.StatusInternalServerError, "failed to marshal selected folders")
+		return
+	}
+	pair.SelectedFolders = string(jsonBytes)
+
+	if err := h.store.UpdateSyncPair(pair); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := h.engine.RefreshPairs(); err != nil {
+		logger.L.Error().Err(err).Msg("failed to refresh pairs after folder selection")
+	}
+
+	logger.Audit("pair.select_folders").Int64("id", id).Str("folders", pair.SelectedFolders).Msg("selected folders updated via API")
+	writeJSON(w, http.StatusOK, pair)
+}
+
 type UpdatePairRequest struct {
-	Name             *string `json:"name"`
-	LocalPath        *string `json:"local_path"`
-	RemotePath       *string `json:"remote_path"`
-	Provider         *string `json:"provider"`
-	Mode             *string `json:"mode"`
-	Direction        *string `json:"direction"`
-	Enabled          *bool   `json:"enabled"`
-	Schedule         *string `json:"schedule"`
-	IncludePatterns  *string `json:"include_patterns"`
-	ExcludePatterns  *string `json:"exclude_patterns"`
-	ConflictStrategy *string `json:"conflict_strategy"`
+	Name             *string  `json:"name"`
+	LocalPath        *string  `json:"local_path"`
+	RemotePath       *string  `json:"remote_path"`
+	Provider         *string  `json:"provider"`
+	Mode             *string  `json:"mode"`
+	Direction        *string  `json:"direction"`
+	Enabled          *bool    `json:"enabled"`
+	Schedule         *string  `json:"schedule"`
+	IncludePatterns  *string  `json:"include_patterns"`
+	ExcludePatterns  *string  `json:"exclude_patterns"`
+	ConflictStrategy *string  `json:"conflict_strategy"`
+	SelectedFolders  []string `json:"selected_folders"`
+	ScanInterval     *int     `json:"scan_interval"`
 }
 
 func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
@@ -358,6 +438,22 @@ func (h *Handler) UpdatePair(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ConflictStrategy != nil {
 		pair.ConflictStrategy = *req.ConflictStrategy
+	}
+	if req.SelectedFolders != nil {
+		normalized := syncengine.NormalizeSelectedFolders(req.SelectedFolders)
+		jsonBytes, jsonErr := json.Marshal(normalized)
+		if jsonErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to marshal selected folders")
+			return
+		}
+		pair.SelectedFolders = string(jsonBytes)
+	}
+	if req.ScanInterval != nil {
+		if *req.ScanInterval < 0 {
+			writeError(w, http.StatusBadRequest, "scan_interval must be non-negative")
+			return
+		}
+		pair.ScanInterval = *req.ScanInterval
 	}
 
 	if err := h.store.UpdateSyncPair(pair); err != nil {
