@@ -53,7 +53,7 @@ type SyncTask struct {
 	Path         string
 	Priority     int
 	Retries      int
-	DeleteTarget string // "local" or "remote"
+	Target string // "local" or "remote"
 }
 
 type TaskResult struct {
@@ -628,7 +628,7 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 				Str("pair", pair.Name).
 				Str("task", string(task.Type)).
 				Str("path", task.Path).
-				Str("delete_target", task.DeleteTarget).
+				Str("delete_target", task.Target).
 				Msg("dry run task")
 		}
 		return nil
@@ -734,19 +734,31 @@ func (e *Engine) generateTasks(pair *store.SyncPair, localFiles, remoteFiles []*
 		}
 	}
 
-	// Sort tasks: file tasks first, then directory tasks.
-	// Lower Priority value runs first. Files get priority >= 1, dirs get priority 0.
+	// Sort tasks: TaskCreateDir first, then file tasks, then TaskDeleteDir last.
 	sort.SliceStable(tasks, func(i, j int) bool {
 		ti, tj := tasks[i], tasks[j]
-		iIsDir := ti.Type == TaskCreateDir || ti.Type == TaskDeleteDir
-		jIsDir := tj.Type == TaskCreateDir || tj.Type == TaskDeleteDir
-		if iIsDir != jIsDir {
-			return !iIsDir // file tasks (not dir) come first
+		tiTier := taskTier(ti.Type)
+		tjTier := taskTier(tj.Type)
+		if tiTier != tjTier {
+			return tiTier < tjTier
 		}
 		return ti.Priority < tj.Priority
 	})
 
 	return tasks
+}
+
+// taskTier returns the execution tier for a task type:
+// 0 = create directories first, 1 = file operations, 2 = delete directories last.
+func taskTier(t TaskType) int {
+	switch t {
+	case TaskCreateDir:
+		return 0
+	case TaskDeleteDir:
+		return 2
+	default:
+		return 1
+	}
 }
 
 func generateUpTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool, isDir bool) []SyncTask {
@@ -922,7 +934,7 @@ func newDirTask(taskType TaskType, pairID int64, key, target string) SyncTask {
 		PairID:       pairID,
 		Path:         key,
 		Priority:     0, // Lower priority so file tasks run first
-		DeleteTarget: target,
+		Target: target,
 	}
 }
 
@@ -941,7 +953,7 @@ func newDeleteTask(pairID int64, key, target string) SyncTask {
 		PairID:       pairID,
 		Path:         key,
 		Priority:     1,
-		DeleteTarget: target,
+		Target: target,
 	}
 }
 
@@ -1225,13 +1237,13 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 		return e.doDownload(ctx, pair, local, remote, task.Path)
 	case TaskDelete:
 		var target provider.Provider
-		if task.DeleteTarget == "local" {
+		if task.Target == "local" {
 			target = local
 		} else {
 			target = remote
 		}
-		logger.L.Debug().Str("path", task.Path).Str("target", task.DeleteTarget).Str("pair", pair.Name).Msg("deleting")
-		return e.doDelete(ctx, pair, target, task.DeleteTarget, task.Path)
+		logger.L.Debug().Str("path", task.Path).Str("target", task.Target).Str("pair", pair.Name).Msg("deleting")
+		return e.doDelete(ctx, pair, target, task.Target, task.Path)
 	case TaskVirtual:
 		logger.L.Debug().Str("path", task.Path).Str("pair", pair.Name).Msg("virtualizing")
 		return e.doVirtualize(ctx, pair, remote, task.Path)
@@ -1240,22 +1252,22 @@ func (e *Engine) executeTask(ctx context.Context, task SyncTask) error {
 		return e.doRecordConflict(ctx, pair, local, remote, task.Path)
 	case TaskCreateDir:
 		var target provider.Provider
-		if task.DeleteTarget == "local" {
+		if task.Target == "local" {
 			target = local
 		} else {
 			target = remote
 		}
-		logger.L.Debug().Str("path", task.Path).Str("target", task.DeleteTarget).Str("pair", pair.Name).Msg("creating directory")
-		return e.doCreateDir(ctx, pair, target, task.DeleteTarget, task.Path)
+		logger.L.Debug().Str("path", task.Path).Str("target", task.Target).Str("pair", pair.Name).Msg("creating directory")
+		return e.doCreateDir(ctx, pair, target, task.Target, task.Path)
 	case TaskDeleteDir:
 		var target provider.Provider
-		if task.DeleteTarget == "local" {
+		if task.Target == "local" {
 			target = local
 		} else {
 			target = remote
 		}
-		logger.L.Debug().Str("path", task.Path).Str("target", task.DeleteTarget).Str("pair", pair.Name).Msg("deleting directory")
-		return e.doDeleteDir(ctx, pair, target, task.DeleteTarget, task.Path)
+		logger.L.Debug().Str("path", task.Path).Str("target", task.Target).Str("pair", pair.Name).Msg("deleting directory")
+		return e.doDeleteDir(ctx, pair, target, task.Target, task.Path)
 	default:
 		return fmt.Errorf("unknown task type: %s", task.Type)
 	}
@@ -1481,7 +1493,7 @@ func (e *Engine) doCreateDir(ctx context.Context, pair *store.SyncPair, target p
 	// Record the directory entry in the DB
 	meta, err := target.Stat(ctx, dirPath)
 	if err != nil {
-		meta = &provider.FileMeta{Path: dirPath, IsDir: true}
+		meta = &provider.FileMeta{Path: dirPath, IsDir: true, ModTime: time.Now()}
 	}
 	entry := &store.FileEntry{
 		Path:       dirPath,
@@ -1508,26 +1520,35 @@ func (e *Engine) doCreateDir(ctx context.Context, pair *store.SyncPair, target p
 
 func (e *Engine) doDeleteDir(ctx context.Context, pair *store.SyncPair, target provider.Provider, targetSide, dirPath string) error {
 	// Delete all synced child files under this directory from the target provider
-	dbEntries, _ := e.store.ListFileEntriesByPair(pair.ID)
+	dbEntries, err := e.store.ListFileEntriesByPair(pair.ID)
+	if err != nil {
+		return fmt.Errorf("list file entries for directory deletion: %w", err)
+	}
 	prefix := path.Clean(dirPath) + "/"
 	for _, entry := range dbEntries {
 		if entry.IsDir {
 			continue // skip sub-directory entries; they get their own tasks
 		}
-		if strings.HasPrefix(entry.Path, prefix) || path.Clean(entry.Path) == path.Clean(dirPath) {
+		if strings.HasPrefix(entry.Path, prefix) {
 			// Delete the file from the target provider
-			if err := target.DeleteFile(ctx, entry.Path); err != nil && !errors.Is(err, provider.ErrNotFound) {
-				logger.L.Warn().Err(err).Str("path", entry.Path).Msg("failed to delete child file")
+			if err := target.DeleteFile(ctx, entry.Path); err != nil {
+				if errors.Is(err, provider.ErrNotFound) {
+					logger.L.Debug().Str("path", entry.Path).Msg("child file already deleted")
+				} else {
+					return fmt.Errorf("delete child file %s: %w", entry.Path, err)
+				}
 			}
-			// Remove the file entry from DB
+			// Remove the file entry from DB only if provider deletion succeeded
 			e.store.DeleteFileEntry(entry.ID)
 		}
 	}
 
 	// Delete the directory itself
 	if err := target.DeleteFile(ctx, dirPath); err != nil {
-		if !errors.Is(err, provider.ErrNotFound) {
-			logger.L.Warn().Err(err).Str("path", dirPath).Msg("failed to delete directory")
+		if errors.Is(err, provider.ErrNotFound) {
+			logger.L.Debug().Str("path", dirPath).Msg("directory already deleted")
+		} else {
+			return fmt.Errorf("delete directory %s: %w", dirPath, err)
 		}
 	}
 
