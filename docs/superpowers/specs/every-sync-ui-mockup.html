@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Every-Sync UI Design Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* ── Light Mode ── */
+  --bg-root: #F8F9FB;
+  --bg-surface: #FFFFFF;
+  --bg-surface-hover: #F1F3F7;
+  --bg-surface-active: #E8EBF0;
+  --bg-sidebar: #FFFFFF;
+  --bg-overlay: rgba(0,0,0,0.4);
+
+  --border-default: #E2E5EB;
+  --border-subtle: #EEF0F4;
+
+  --text-primary: #1A1D26;
+  --text-secondary: #5C6170;
+  --text-tertiary: #9399A8;
+  --text-inverse: #FFFFFF;
+
+  --accent-blue: #3B6BF5;
+  --accent-blue-hover: #2B5AE0;
+  --accent-blue-subtle: #EBF0FF;
+  --accent-green: #1FA463;
+  --accent-green-subtle: #E6F7EE;
+  --accent-red: #E5484D;
+  --accent-red-subtle: #FEE;
+  --accent-amber: #F5A623;
+  --accent-amber-subtle: #FFF7E6;
+  --accent-violet: #7C5CFC;
+  --accent-violet-subtle: #F0ECFF;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.08);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --sidebar-width: 240px;
+  --header-height: 56px;
+
+  --transition-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
+  --transition-normal: 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-theme="dark"] {
+  --bg-root: #0E1117;
+  --bg-surface: #161B25;
+  --bg-surface-hover: #1C2230;
+  --bg-surface-active: #252D3A;
+  --bg-sidebar: #111620;
+  --bg-overlay: rgba(0,0,0,0.6);
+
+  --border-default: #252D3A;
+  --border-subtle: #1C2230;
+
+  --text-primary: #E8ECF4;
+  --text-secondary: #8B93A7;
+  --text-tertiary: #5C6478;
+  --text-inverse: #0E1117;
+
+  --accent-blue: #5B8AF5;
+  --accent-blue-hover: #7BA1F7;
+  --accent-blue-subtle: #1A2540;
+  --accent-green: #2ECE80;
+  --accent-green-subtle: #132A1E;
+  --accent-red: #F0666B;
+  --accent-red-subtle: #2A1214;
+  --accent-amber: #F5B84A;
+  --accent-amber-subtle: #2A2010;
+  --accent-violet: #9B82FC;
+  --accent-violet-subtle: #1E1638;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+html, body {
+  height: 100%;
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-root);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ── */
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.sidebar-header {
+  padding: 20px 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-logo {
+  width: 28px;
+  height: 28px;
+  background: var(--accent-blue);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.sidebar-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 4px 8px;
+  overflow-y: auto;
+}
+
+.nav-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  padding: 16px 12px 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 450;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+  position: relative;
+}
+
+.nav-item:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: var(--accent-blue-subtle);
+  color: var(--accent-blue);
+  font-weight: 500;
+}
+
+.nav-item svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--accent-red);
+  color: white;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  width: 100%;
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+/* ── Main Content ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.content-header {
+  height: var(--header-height);
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.content-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.content-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.content-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+/* ── Breadcrumb ── */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.breadcrumb-item {
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+}
+
+.breadcrumb-item:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.breadcrumb-item.current {
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: default;
+}
+
+.breadcrumb-item.current:hover {
+  background: none;
+}
+
+.breadcrumb-sep {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+/* ── Pair Selector ── */
+.pair-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pair-select {
+  appearance: none;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 5px 28px 5px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%239399A8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: all var(--transition-fast);
+}
+
+.pair-select:hover {
+  border-color: var(--accent-blue);
+}
+
+.pair-select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px var(--accent-blue-subtle);
+}
+
+/* ── Sync Status Icons ── */
+.status-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.status-synced { color: var(--accent-green); }
+.status-syncing { color: var(--accent-blue); }
+.status-virtual { color: var(--accent-violet); }
+.status-conflict { color: var(--accent-red); }
+.status-excluded { color: var(--text-tertiary); }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.status-syncing svg {
+  animation: spin 1.5s linear infinite;
+}
+
+/* ── Side Tabs (Local/Remote) ── */
+.side-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-surface-hover);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.side-tab {
+  padding: 5px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+
+.side-tab:hover {
+  color: var(--text-primary);
+}
+
+.side-tab.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Folder Checkbox ── */
+.folder-check {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  border: 1.5px solid var(--border-default);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.folder-check:hover {
+  border-color: var(--accent-blue);
+}
+
+.folder-check.checked {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+.folder-check.checked::after {
+  content: '';
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid white;
+  border-bottom: 2px solid white;
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+.folder-check.partial {
+  border-color: var(--accent-blue);
+}
+
+.folder-check.partial::after {
+  content: '';
+  width: 8px;
+  height: 0;
+  border-bottom: 2px solid var(--accent-blue);
+}
+
+/* ── File List ── */
+.file-list {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.file-list-header {
+  display: grid;
+  grid-template-columns: 32px 32px 1fr 100px 160px 100px 36px;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 32px 32px 1fr 100px 160px 100px 36px;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 13.5px;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.file-row:last-child {
+  border-bottom: none;
+}
+
+.file-row:hover {
+  background: var(--bg-surface-hover);
+}
+
+.file-row:active {
+  background: var(--bg-surface-active);
+}
+
+.file-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.file-icon.folder {
+  color: var(--accent-amber);
+}
+
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 450;
+}
+
+.file-size, .file-time {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  opacity: 0;
+  background: none;
+  border: none;
+}
+
+.file-row:hover .file-action-btn {
+  opacity: 1;
+}
+
+.file-action-btn:hover {
+  background: var(--bg-surface-active);
+  color: var(--text-primary);
+}
+
+/* ── Context Menu ── */
+.context-menu {
+  position: fixed;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  display: none;
+}
+
+.context-menu.show {
+  display: block;
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.context-item:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.context-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.context-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
+}
+
+/* ── Dashboard Cards ── */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  transition: box-shadow var(--transition-normal);
+}
+
+.metric-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.metric-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.metric-value {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.metric-value.green { color: var(--accent-green); }
+.metric-value.blue { color: var(--accent-blue); }
+.metric-value.red { color: var(--accent-red); }
+.metric-value.violet { color: var(--accent-violet); }
+
+/* ── Traffic Stats ── */
+.traffic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.traffic-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.traffic-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.traffic-icon.upload { background: var(--accent-blue-subtle); color: var(--accent-blue); }
+.traffic-icon.download { background: var(--accent-green-subtle); color: var(--accent-green); }
+.traffic-icon.conflict { background: var(--accent-red-subtle); color: var(--accent-red); }
+
+.traffic-info { flex: 1; min-width: 0; }
+.traffic-label { font-size: 12px; color: var(--text-tertiary); }
+.traffic-value { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── Active Pairs ── */
+.pair-list {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.pair-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--transition-fast);
+}
+
+.pair-row:last-child { border-bottom: none; }
+.pair-row:hover { background: var(--bg-surface-hover); }
+
+.pair-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pair-status-dot.running { background: var(--accent-green); }
+.pair-status-dot.stopped { background: var(--text-tertiary); }
+.pair-status-dot.error { background: var(--accent-red); }
+
+.pair-name { font-weight: 500; font-size: 13.5px; flex: 1; }
+.pair-meta { font-size: 12px; color: var(--text-tertiary); }
+
+.pair-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: none;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--accent-blue);
+  color: white;
+}
+.btn-primary:hover { background: var(--accent-blue-hover); }
+
+.btn-secondary {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+.btn-secondary:hover { background: var(--bg-surface-active); }
+
+.btn-ghost {
+  background: none;
+  color: var(--text-secondary);
+  padding: 6px 8px;
+}
+.btn-ghost:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+
+.btn svg { width: 16px; height: 16px; }
+
+/* ── Status Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.badge-success { background: var(--accent-green-subtle); color: var(--accent-green); }
+.badge-warning { background: var(--accent-amber-subtle); color: var(--accent-amber); }
+.badge-error { background: var(--accent-red-subtle); color: var(--accent-red); }
+.badge-info { background: var(--accent-blue-subtle); color: var(--accent-blue); }
+.badge-neutral { background: var(--bg-surface-hover); color: var(--text-secondary); }
+
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: fadeIn 0.3s var(--transition-fast) both;
+}
+
+.file-row { animation: fadeIn 0.2s ease both; }
+.file-row:nth-child(2) { animation-delay: 20ms; }
+.file-row:nth-child(3) { animation-delay: 40ms; }
+.file-row:nth-child(4) { animation-delay: 60ms; }
+.file-row:nth-child(5) { animation-delay: 80ms; }
+.file-row:nth-child(6) { animation-delay: 100ms; }
+.file-row:nth-child(7) { animation-delay: 120ms; }
+.file-row:nth-child(8) { animation-delay: 140ms; }
+.file-row:nth-child(9) { animation-delay: 160ms; }
+
+/* ── Tooltip ── */
+.tooltip {
+  position: relative;
+}
+.tooltip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text-primary);
+  color: var(--text-inverse);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.tooltip:hover::after { opacity: 1; }
+
+/* ── Section Headers ── */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+/* ── Page Tabs ── */
+.page-tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+.page-tab {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+.page-tab:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
+.page-tab.active { color: var(--text-primary); background: var(--bg-surface-active); }
+
+/* ── Empty State ── */
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-tertiary);
+}
+.empty-state svg { margin-bottom: 12px; color: var(--text-tertiary); opacity: 0.5; }
+.empty-state-title { font-size: 14px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px; }
+.empty-state-desc { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">E</div>
+      <span class="sidebar-title">Every-Sync</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Overview</div>
+      <div class="nav-item active" data-page="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" data-page="files">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7V17C3 18.1 3.9 19 5 19H19C20.1 19 21 18.1 21 17V9C21 7.9 20.1 7 19 7H12L10 5H5C3.9 5 3 5.9 3 7Z"/></svg>
+        File Browser
+      </div>
+
+      <div class="nav-section-label">Manage</div>
+      <div class="nav-item" data-page="pairs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L2 7L12 12L22 7L12 2Z"/><path d="M2 17L12 22L22 17"/><path d="M2 12L12 17L22 12"/></svg>
+        Sync Pairs
+      </div>
+      <div class="nav-item" data-page="providers">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 1V5M12 19V23M4.22 4.22L7.05 7.05M16.95 16.95L19.78 19.78M1 12H5M19 12H23M4.22 19.78L7.05 16.95M16.95 7.05L19.78 4.22"/></svg>
+        Providers
+      </div>
+
+      <div class="nav-section-label">Monitor</div>
+      <div class="nav-item" data-page="conflicts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.29 3.86L1.82 18A2 2 0 003.71 21H20.29A2 2 0 0022.18 18L13.71 3.86A2 2 0 0010.29 3.86Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Conflicts
+        <span class="nav-badge">3</span>
+      </div>
+      <div class="nav-item" data-page="versions">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1021.32 9.68L1 10"/></svg>
+        Versions
+      </div>
+      <div class="nav-item" data-page="logs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Logs
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="theme-toggle" onclick="toggleTheme()">
+        <svg id="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><path d="M12 1V3M12 21V23M4.22 4.22L5.64 5.64M18.36 18.36L19.78 19.78M1 12H3M21 12H23M4.22 19.78L5.64 18.36M18.36 5.64L19.78 4.22"/></svg>
+        <svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="display:none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79Z"/></svg>
+        <span id="theme-label">Light Mode</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main">
+    <div id="page-dashboard" class="page-content">
+      <div class="content-header">
+        <div class="content-header-left">
+          <span class="content-title">Dashboard</span>
+          <span class="badge badge-success">Engine Running</span>
+        </div>
+        <button class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg>
+          Sync All
+        </button>
+      </div>
+      <div class="content-body">
+        <div class="metrics-grid">
+          <div class="metric-card animate-in">
+            <div class="metric-label">Engine Status</div>
+            <div class="metric-value green">Running</div>
+          </div>
+          <div class="metric-card animate-in" style="animation-delay:40ms">
+            <div class="metric-label">Sync Pairs</div>
+            <div class="metric-value blue">4</div>
+          </div>
+          <div class="metric-card animate-in" style="animation-delay:80ms">
+            <div class="metric-label">Pending Tasks</div>
+            <div class="metric-value violet">12</div>
+          </div>
+          <div class="metric-card animate-in" style="animation-delay:120ms">
+            <div class="metric-label">Workers</div>
+            <div class="metric-value">16</div>
+          </div>
+        </div>
+
+        <div class="traffic-grid animate-in" style="animation-delay:160ms">
+          <div class="traffic-card">
+            <div class="traffic-icon upload">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="traffic-info">
+              <div class="traffic-label">Uploaded</div>
+              <div class="traffic-value">2.4 GB</div>
+            </div>
+          </div>
+          <div class="traffic-card">
+            <div class="traffic-icon download">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <div class="traffic-info">
+              <div class="traffic-label">Downloaded</div>
+              <div class="traffic-value">5.8 GB</div>
+            </div>
+          </div>
+          <div class="traffic-card">
+            <div class="traffic-icon conflict">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18A2 2 0 003.71 21H20.29A2 2 0 0022.18 18L13.71 3.86A2 2 0 0010.29 3.86Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="traffic-info">
+              <div class="traffic-label">Conflicts / Virtual</div>
+              <div class="traffic-value">3 / 142</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-header">
+          <span class="section-title">Active Pairs</span>
+        </div>
+        <div class="pair-list animate-in" style="animation-delay:200ms">
+          <div class="pair-row">
+            <div class="pair-status-dot running"></div>
+            <span class="pair-name">Documents</span>
+            <span class="pair-meta">Normal · Both</span>
+            <span class="badge badge-success">Synced</span>
+            <div class="pair-actions">
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg></button>
+            </div>
+          </div>
+          <div class="pair-row">
+            <div class="pair-status-dot running"></div>
+            <span class="pair-name">Photos</span>
+            <span class="pair-meta">Normal · Down</span>
+            <span class="badge badge-info">Syncing</span>
+            <div class="pair-actions">
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg></button>
+            </div>
+          </div>
+          <div class="pair-row">
+            <div class="pair-status-dot running"></div>
+            <span class="pair-name">Cloud Archive</span>
+            <span class="pair-meta">Virtual · Both</span>
+            <span class="badge badge-success">Synced</span>
+            <div class="pair-actions">
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- File Browser Page -->
+    <div id="page-files" class="page-content" style="display:none">
+      <div class="content-header">
+        <div class="content-header-left">
+          <span class="content-title">File Browser</span>
+          <select class="pair-select">
+            <option>Documents (Normal · Both)</option>
+            <option>Photos (Normal · Down)</option>
+            <option>Cloud Archive (Virtual · Both)</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="side-tabs">
+            <button class="side-tab active" onclick="switchSide('local')">Local</button>
+            <button class="side-tab" onclick="switchSide('remote')">Remote</button>
+          </div>
+        </div>
+      </div>
+      <div class="content-body">
+        <div class="breadcrumb" style="margin-bottom:16px">
+          <span class="breadcrumb-item" onclick="navigateTo(0)">Documents</span>
+          <span class="breadcrumb-sep">›</span>
+          <span class="breadcrumb-item" onclick="navigateTo(1)">Work</span>
+          <span class="breadcrumb-sep">›</span>
+          <span class="breadcrumb-item current">Projects</span>
+        </div>
+
+        <div class="file-list">
+          <div class="file-list-header">
+            <span></span>
+            <span></span>
+            <span>Name</span>
+            <span>Size</span>
+            <span>Modified</span>
+            <span>Status</span>
+            <span></span>
+          </div>
+
+          <!-- Folder rows -->
+          <div class="file-row" oncontextmenu="showContextMenu(event, '2024')">
+            <div class="folder-check checked"></div>
+            <svg class="file-icon folder" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z"/></svg>
+            <span class="file-name">2024</span>
+            <span class="file-size">—</span>
+            <span class="file-time">2024-12-15 10:30</span>
+            <span class="status-icon status-synced tooltip" data-tip="Synced">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17L4 12"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+
+          <div class="file-row" oncontextmenu="showContextMenu(event, '2025')">
+            <div class="folder-check checked"></div>
+            <svg class="file-icon folder" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z"/></svg>
+            <span class="file-name">2025</span>
+            <span class="file-size">—</span>
+            <span class="file-time">2025-05-10 14:22</span>
+            <span class="status-icon status-syncing tooltip" data-tip="Syncing">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+
+          <div class="file-row" oncontextmenu="showContextMenu(event, 'Shared')">
+            <div class="folder-check partial"></div>
+            <svg class="file-icon folder" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z"/></svg>
+            <span class="file-name">Shared</span>
+            <span class="file-size">—</span>
+            <span class="file-time">2025-04-28 09:15</span>
+            <span class="status-icon status-synced tooltip" data-tip="Partially synced">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17L4 12"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+
+          <div class="file-row" oncontextmenu="showContextMenu(event, 'Archived')">
+            <div class="folder-check"></div>
+            <svg class="file-icon folder" viewBox="0 0 24 24" fill="currentColor" opacity="0.5"><path d="M10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z"/></svg>
+            <span class="file-name" style="color:var(--text-tertiary)">Archived</span>
+            <span class="file-size">—</span>
+            <span class="file-time">2024-06-01 08:00</span>
+            <span class="status-icon status-excluded tooltip" data-tip="Excluded">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+
+          <!-- File rows -->
+          <div class="file-row" oncontextmenu="showContextMenu(event, 'README.md')">
+            <div></div>
+            <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="file-name">README.md</span>
+            <span class="file-size">4.2 KB</span>
+            <span class="file-time">2025-05-11 16:45</span>
+            <span class="status-icon status-synced tooltip" data-tip="Synced">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17L4 12"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+
+          <div class="file-row" oncontextmenu="showContextMenu(event, 'design-spec.pdf')">
+            <div></div>
+            <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--accent-red)"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="file-name">design-spec.pdf</span>
+            <span class="file-size">12.8 MB</span>
+            <span class="file-time">2025-05-10 11:30</span>
+            <span class="status-icon status-virtual tooltip" data-tip="Virtual — Click to download">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10H16.5C16.5 7.5 14.48 5.5 12 5.5C10.28 5.5 8.8 6.49 8.12 7.93"/><path d="M6 14H7.5C7.5 16.5 9.52 18.5 12 18.5C13.72 18.5 15.2 17.51 15.88 16.07"/><path d="M4 10H7V7"/><path d="M20 14H17V17"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+
+          <div class="file-row" oncontextmenu="showContextMenu(event, 'budget.xlsx')">
+            <div></div>
+            <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--accent-green)"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="file-name">budget.xlsx</span>
+            <span class="file-size">156 KB</span>
+            <span class="file-time">2025-05-09 09:15</span>
+            <span class="status-icon status-conflict tooltip" data-tip="Conflict">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+
+          <div class="file-row" oncontextmenu="showContextMenu(event, 'notes.txt')">
+            <div></div>
+            <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="file-name">notes.txt</span>
+            <span class="file-size">890 B</span>
+            <span class="file-time">2025-05-11 18:02</span>
+            <span class="status-icon status-synced tooltip" data-tip="Synced">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17L4 12"/></svg>
+            </span>
+            <button class="file-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Conflicts Page -->
+    <div id="page-conflicts" class="page-content" style="display:none">
+      <div class="content-header">
+        <div class="content-header-left">
+          <span class="content-title">Conflicts</span>
+          <span class="badge badge-error">3</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <select class="pair-select">
+            <option>All Pairs</option>
+            <option>Documents</option>
+            <option>Photos</option>
+          </select>
+          <div class="page-tabs">
+            <button class="page-tab active">All</button>
+            <button class="page-tab">Modify vs Modify</button>
+            <button class="page-tab">Modify vs Delete</button>
+            <button class="page-tab">Delete vs Modify</button>
+          </div>
+        </div>
+      </div>
+      <div class="content-body">
+        <div class="file-list">
+          <div class="file-list-header" style="grid-template-columns:1fr 120px 120px 120px 120px 140px">
+            <span>File</span>
+            <span>Type</span>
+            <span>Local</span>
+            <span>Remote</span>
+            <span>Pair</span>
+            <span>Resolve</span>
+          </div>
+
+          <div class="file-row" style="grid-template-columns:1fr 120px 120px 120px 120px 140px">
+            <span class="file-name">
+              <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--accent-green);width:16px;height:16px;vertical-align:-3px;margin-right:4px"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Work/Projects/budget.xlsx
+            </span>
+            <span><span class="badge badge-warning">Modify↔Modify</span></span>
+            <span class="file-size">156 KB<br><span style="color:var(--text-tertiary);font-size:11px">05-11 18:02</span></span>
+            <span class="file-size">148 KB<br><span style="color:var(--text-tertiary);font-size:11px">05-11 17:55</span></span>
+            <span class="file-size" style="color:var(--text-secondary)">Documents</span>
+            <td style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Local Wins</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Remote Wins</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Latest</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Keep Both</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Rename</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px">Skip</button>
+            </td>
+          </div>
+
+          <div class="file-row" style="grid-template-columns:1fr 120px 120px 120px 120px 140px">
+            <span class="file-name">
+              <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--text-secondary);width:16px;height:16px;vertical-align:-3px;margin-right:4px"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Work/notes.txt
+            </span>
+            <span><span class="badge badge-error">Modify↔Delete</span></span>
+            <span class="file-size">890 B<br><span style="color:var(--text-tertiary);font-size:11px">05-11 16:45 (edited)</span></span>
+            <span class="file-size" style="color:var(--accent-red)">Deleted<br><span style="font-size:11px">was 756 B</span></span>
+            <span class="file-size" style="color:var(--text-secondary)">Documents</span>
+            <td style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Keep Local</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Accept Delete</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Latest</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px">Skip</button>
+            </td>
+          </div>
+
+          <div class="file-row" style="grid-template-columns:1fr 120px 120px 120px 120px 140px">
+            <span class="file-name">
+              <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--accent-red);width:16px;height:16px;vertical-align:-3px;margin-right:4px"><path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Photos/vacation.jpg
+            </span>
+            <span><span class="badge badge-error">Delete↔Modify</span></span>
+            <span class="file-size" style="color:var(--accent-red)">Deleted<br><span style="font-size:11px">was 4.2 MB</span></span>
+            <span class="file-size">4.5 MB<br><span style="color:var(--text-tertiary);font-size:11px">05-10 14:30 (edited)</span></span>
+            <span class="file-size" style="color:var(--text-secondary)">Photos</span>
+            <td style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Accept Delete</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Keep Remote</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:3px 8px">Latest</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px">Skip</button>
+            </td>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Pairs Page -->
+    <div id="page-pairs" class="page-content" style="display:none">
+      <div class="content-header">
+        <div class="content-header-left">
+          <span class="content-title">Sync Pairs</span>
+        </div>
+        <button class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Pair
+        </button>
+      </div>
+      <div class="content-body">
+        <div class="pair-list">
+          <div class="pair-row">
+            <div class="pair-status-dot running"></div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+                <span class="pair-name">Documents</span>
+                <span class="badge badge-info">Normal</span>
+                <span class="badge badge-neutral">Both</span>
+              </div>
+              <div style="font-size:12px;color:var(--text-tertiary)">~/Documents ↔ WebDAV:/documents · Scan: 2m</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Folders: work, photos · Include: *.pdf,*.docx · Exclude: *.tmp</div>
+            </div>
+            <span class="badge badge-success">Synced</span>
+            <div class="pair-actions">
+              <button class="btn btn-ghost btn-icon" title="Sync Now"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg></button>
+              <button class="btn btn-ghost btn-icon" title="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H16C17.1 20 18 19.1 18 18V11"/><path d="M18.5 2.5C18.9 2.1 19.5 2.1 19.9 2.5L21.5 4.1C21.9 4.5 21.9 5.1 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z"/></svg></button>
+              <button class="btn btn-ghost btn-icon" title="Disable"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+            </div>
+          </div>
+
+          <div class="pair-row">
+            <div class="pair-status-dot running"></div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+                <span class="pair-name">Photos</span>
+                <span class="badge badge-info">Normal</span>
+                <span class="badge badge-neutral">Down</span>
+              </div>
+              <div style="font-size:12px;color:var(--text-tertiary)">~/Photos ← WebDAV:/photos · Scan: 5m</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Folders: (all) · Include: *.jpg,*.png,*.raw · Exclude: *.tmp</div>
+            </div>
+            <span class="badge badge-info">Syncing</span>
+            <div class="pair-actions">
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg></button>
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H16C17.1 20 18 19.1 18 18V11"/><path d="M18.5 2.5C18.9 2.1 19.5 2.1 19.9 2.5L21.5 4.1C21.9 4.5 21.9 5.1 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z"/></svg></button>
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+            </div>
+          </div>
+
+          <div class="pair-row">
+            <div class="pair-status-dot running"></div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+                <span class="pair-name">Cloud Archive</span>
+                <span class="badge badge-neutral" style="background:var(--accent-violet-subtle);color:var(--accent-violet)">Virtual</span>
+                <span class="badge badge-neutral">Both</span>
+              </div>
+              <div style="font-size:12px;color:var(--text-tertiary)">~/Archive ↔ WebDAV:/archive · Scan: 30m</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Folders: (all) · Include: (all) · Exclude: *.tmp,*.log</div>
+            </div>
+            <span class="badge badge-success">Synced</span>
+            <div class="pair-actions">
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4V10H17"/><path d="M1 20V14H7"/><path d="M3.51 9A9 9 0 0117.64 4.64L23 10"/><path d="M20.49 15A9 9 0 016.36 19.36L1 14"/></svg></button>
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H16C17.1 20 18 19.1 18 18V11"/><path d="M18.5 2.5C18.9 2.1 19.5 2.1 19.9 2.5L21.5 4.1C21.9 4.5 21.9 5.1 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z"/></svg></button>
+              <button class="btn btn-ghost btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="context-menu">
+      <div class="context-item" onclick="hideContextMenu()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download / Materialize
+      </div>
+      <div class="context-item" onclick="hideContextMenu()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15A9 9 0 1021.32 9.68L1 10"/></svg>
+        View Versions
+      </div>
+      <div class="context-item" onclick="hideContextMenu()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18A2 2 0 003.71 21H20.29A2 2 0 0022.18 18L13.71 3.86A2 2 0 0010.29 3.86Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Resolve Conflict
+      </div>
+      <div class="context-divider"></div>
+      <div class="context-item" onclick="hideContextMenu()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6L18 18"/></svg>
+        Exclude from Sync
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// Page navigation
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    item.classList.add('active');
+    const page = item.dataset.page;
+    document.querySelectorAll('.page-content').forEach(p => p.style.display = 'none');
+    const target = document.getElementById('page-' + page);
+    if (target) target.style.display = '';
+  });
+});
+
+// Theme toggle
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  document.getElementById('theme-icon-light').style.display = isDark ? '' : 'none';
+  document.getElementById('theme-icon-dark').style.display = isDark ? 'none' : '';
+  document.getElementById('theme-label').textContent = isDark ? 'Light Mode' : 'Dark Mode';
+}
+
+// Context menu
+function showContextMenu(e, name) {
+  e.preventDefault();
+  const menu = document.getElementById('context-menu');
+  menu.classList.add('show');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+}
+
+function hideContextMenu() {
+  document.getElementById('context-menu').classList.remove('show');
+}
+
+document.addEventListener('click', hideContextMenu);
+
+// Side tabs
+function switchSide(side) {
+  document.querySelectorAll('.side-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+// Check system preference
+if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  document.documentElement.setAttribute('data-theme', 'dark');
+  document.getElementById('theme-icon-light').style.display = 'none';
+  document.getElementById('theme-icon-dark').style.display = '';
+  document.getElementById('theme-label').textContent = 'Dark Mode';
+}
+</script>
+</body>
+</html>
