@@ -539,6 +539,10 @@ func (h *Handler) ListVersions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versions)
 }
 
+func (h *Handler) ListLogs(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, []map[string]string{})
+}
+
 // --- Providers ---
 
 func (h *Handler) ListProviders(w http.ResponseWriter, r *http.Request) {

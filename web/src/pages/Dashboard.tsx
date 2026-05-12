@@ -101,12 +101,12 @@ export const Dashboard: React.FC = () => {
 
   return (
     <PageWrapper>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-6)' }}>
-        <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
+        <div style={{ minWidth: '220px', flex: '1 1 auto' }}>
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{t('dashboard.title')}</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>{t('dashboard.subtitle')}</p>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={handleSyncAll} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
             <SyncIcon size={15} color="#fff" /> {t('dashboard.syncAll')}
           </button>

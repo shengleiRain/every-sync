@@ -146,7 +146,20 @@ export interface WSLogEvent {
   timestamp: string;
 }
 
-export type WSEvent = WSProgressEvent | WSStatusEvent | WSConflictEvent | WSLogEvent;
+export interface WSEngineEvent {
+  type: string;
+  time?: string;
+  pair_id?: number | string;
+  pair_name?: string;
+  task_type?: string;
+  path?: string;
+  pending?: number;
+  error?: string;
+  message?: string;
+  direction?: string;
+}
+
+export type WSEvent = WSProgressEvent | WSStatusEvent | WSConflictEvent | WSLogEvent | WSEngineEvent;
 
 interface APIFileListResponse {
   entries?: APIFileEntry[];

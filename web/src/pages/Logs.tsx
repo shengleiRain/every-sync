@@ -30,16 +30,38 @@ export const Logs: React.FC = () => {
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const appendLogEvent = useCallback((event: WSEvent) => {
-    if (event.type !== 'log') return;
+    const raw = event as {
+      type: string;
+      timestamp?: string;
+      time?: string;
+      level?: LogEntry['level'];
+      message?: string;
+      pair_id?: number | string;
+      error?: string;
+      pair_name?: string;
+      path?: string;
+      direction?: string;
+    };
+    const timestamp = raw.timestamp || raw.time || new Date().toISOString();
+    const level: LogEntry['level'] = raw.type === 'log' && raw.level
+      ? raw.level
+      : raw.error || raw.type.includes('failed') || raw.type.includes('conflict')
+        ? raw.type.includes('conflict') && !raw.error ? 'warn' : 'error'
+        : 'info';
+    const message = raw.type === 'log'
+      ? raw.message || ''
+      : formatEngineEvent(raw);
+    const pairId = raw.pair_id == null ? undefined : String(raw.pair_id);
+
     setLogs((prev) => {
       const next = [
         ...prev,
         {
-          id: `ws-${event.timestamp}-${prev.length}`,
-          timestamp: event.timestamp || new Date().toISOString(),
-          level: event.level,
-          message: event.message,
-          pair_id: event.pair_id,
+          id: `ws-${timestamp}-${prev.length}`,
+          timestamp,
+          level,
+          message,
+          pair_id: pairId,
         },
       ];
       return next.slice(-500);
@@ -53,7 +75,7 @@ export const Logs: React.FC = () => {
     setLoadError(null);
     try {
       const data = await listLogs();
-      setLogs(data);
+      setLogs((prev) => data.length > 0 ? data : prev);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : t('logs.loadFailed'));
       setLogs([]);
@@ -196,3 +218,20 @@ export const Logs: React.FC = () => {
     </div>
   );
 };
+
+function formatEngineEvent(event: {
+  type: string;
+  pair_name?: string;
+  path?: string;
+  direction?: string;
+  message?: string;
+  error?: string;
+}): string {
+  const parts = [event.type.split('_').join(' ')];
+  if (event.pair_name) parts.push(String(event.pair_name));
+  if (event.path) parts.push(String(event.path));
+  if (event.direction) parts.push(`direction=${event.direction}`);
+  if (event.message) parts.push(String(event.message));
+  if (event.error) parts.push(String(event.error));
+  return parts.join(' · ');
+}

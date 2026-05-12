@@ -40,7 +40,7 @@ const App: React.FC = () => {
   const [conflictCount, setConflictCount] = useState(0);
 
   const handleWSEvent = useCallback((event: WSEvent) => {
-    if (event.type === 'conflict') {
+    if (event.type === 'conflict' || event.type === 'conflict_detected') {
       setConflictCount((c) => c + 1);
     }
   }, []);

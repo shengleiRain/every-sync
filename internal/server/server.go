@@ -40,6 +40,7 @@ func New(s *store.Store, e *engine.Engine, addr string) *Server {
 	api.HandleFunc("GET /api/v1/conflicts", h.ListConflicts)
 	api.HandleFunc("POST /api/v1/conflicts/{id}/resolve", h.ResolveConflict)
 	api.HandleFunc("GET /api/v1/versions", h.ListVersions)
+	api.HandleFunc("GET /api/v1/logs", h.ListLogs)
 
 	api.HandleFunc("GET /api/v1/providers", h.ListProviders)
 	api.HandleFunc("POST /api/v1/providers", h.CreateProvider)

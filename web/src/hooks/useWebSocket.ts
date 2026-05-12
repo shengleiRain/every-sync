@@ -45,20 +45,22 @@ export function useWebSocket({ onEvent, enabled = true }: UseWebSocketOptions) {
     };
 
     ws.onerror = (err) => {
-      console.error('[WS] Error:', err);
+      console.debug('[WS] Error:', err);
       ws.close();
     };
   }, [enabled]);
 
   useEffect(() => {
-    connect();
+    const initialConnectTimer = setTimeout(connect, 0);
 
     return () => {
+      clearTimeout(initialConnectTimer);
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
       }
       if (wsRef.current) {
         wsRef.current.onclose = null; // prevent reconnect on cleanup
+        wsRef.current.onerror = null;
         wsRef.current.close();
       }
     };

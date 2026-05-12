@@ -39,7 +39,10 @@ const navItems: NavItem[] = [
 export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected = false }) => {
   const location = useLocation();
   const { t, toggleLang } = useI18n();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 700;
+  });
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === 'undefined') return false;
     return document.documentElement.getAttribute('data-theme') === 'dark' ||

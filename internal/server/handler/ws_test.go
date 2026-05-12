@@ -69,6 +69,31 @@ func TestUpdatePairCanChangeNameAndProvider(t *testing.T) {
 	}
 }
 
+func TestListLogsReturnsArray(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	h := New(s, &fakeEngine{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs?limit=10", nil)
+	rec := httptest.NewRecorder()
+
+	h.ListLogs(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal logs: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("logs response is nil, want empty array")
+	}
+}
+
 type fakeEngine struct {
 	refreshes int
 }
