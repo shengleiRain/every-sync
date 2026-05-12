@@ -10,6 +10,7 @@ import { Conflicts } from './pages/Conflicts';
 import { Versions } from './pages/Versions';
 import { Logs } from './pages/Logs';
 import { useWebSocket } from './hooks/useWebSocket';
+import { SyncProgressProvider } from './hooks/useSyncProgress';
 import { LanguageProvider } from './i18n';
 import type { WSEvent } from './api/client';
 
@@ -49,8 +50,9 @@ const App: React.FC = () => {
 
   return (
     <LanguageProvider>
-      <BrowserRouter>
-        <ToastContainer />
+      <SyncProgressProvider>
+        <BrowserRouter>
+          <ToastContainer />
         <Routes>
           <Route element={<Layout conflictCount={conflictCount} wsConnected={wsConnected} />}>
             <Route index element={<Dashboard />} />
@@ -63,6 +65,7 @@ const App: React.FC = () => {
           </Route>
         </Routes>
       </BrowserRouter>
+      </SyncProgressProvider>
     </LanguageProvider>
   );
 };
