@@ -5,6 +5,7 @@ import type { DashboardStats, SyncPair } from '../api/client';
 import { StatusIcon } from '../components/StatusIcon';
 import { SyncIcon, UploadIcon, DownloadIcon, WarningIcon, PlayIcon } from '../components/Icons';
 import { getPairModeLabelKey, getSyncStatusLabelKey, useI18n } from '../i18n';
+import { useSyncProgress } from '../hooks/useSyncProgress';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -23,8 +24,28 @@ function formatRelative(dateStr: string | undefined, t: (key: string, params?: R
   return t('time.daysAgo', { n: Math.floor(diff / 86400000) });
 }
 
+// A thin progress bar for showing sync progress
+const ProgressBar: React.FC<{ progress: number; height?: number }> = ({ progress, height = 3 }) => (
+  <div style={{
+    width: '100%',
+    height: `${height}px`,
+    background: 'var(--border-default)',
+    borderRadius: '2px',
+    overflow: 'hidden',
+  }}>
+    <div style={{
+      width: `${Math.min(100, Math.max(0, progress))}%`,
+      height: '100%',
+      background: 'var(--accent-green)',
+      borderRadius: '2px',
+      transition: 'width 0.3s ease',
+    }} />
+  </div>
+);
+
 export const Dashboard: React.FC = () => {
   const { t } = useI18n();
+  const { getProgress, activeSyncCount } = useSyncProgress();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +71,15 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Refresh dashboard data when sync activity completes (activeSyncCount drops to 0)
+  const prevSyncCountRef = React.useRef(activeSyncCount);
+  useEffect(() => {
+    if (prevSyncCountRef.current > 0 && activeSyncCount === 0) {
+      load();
+    }
+    prevSyncCountRef.current = activeSyncCount;
+  }, [activeSyncCount, load]);
 
   const handleSync = async (pairId: string) => {
     setSyncingPairId(pairId);
@@ -172,28 +202,52 @@ export const Dashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {pairs.map((pair) => (
+                {pairs.map((pair) => {
+                  const progress = getProgress(pair.id);
+                  const isActivelySyncing = progress?.status === 'syncing' || progress?.status === 'scanning';
+                  return (
                   <tr key={pair.id} style={styles.tr}>
                     <td style={styles.td}>
                       <span style={{ fontWeight: 500 }}>{pair.name}</span>
                       <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
                         {pair.local_path} &rarr; {pair.remote_path}
                       </span>
+                      {isActivelySyncing && (
+                        <div style={{ marginTop: '4px' }}>
+                          <ProgressBar progress={progress.filesTotal > 0 ? (progress.filesSynced / progress.filesTotal) * 100 : 0} />
+                          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                            {progress.currentFile && `${t('dashboard.currentFile')}: ${progress.currentFile.length > 40 ? '...' + progress.currentFile.slice(-37) : progress.currentFile}`}
+                            {progress.filesTotal > 0 && ` (${progress.filesSynced}/${progress.filesTotal})`}
+                          </div>
+                        </div>
+                      )}
                     </td>
                     <td style={styles.td}>
                       <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
                     </td>
                     <td style={styles.td}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                        <StatusIcon status={pair.status} />
-                        <span>{t(getSyncStatusLabelKey(pair.status))}</span>
-                      </span>
+                      {isActivelySyncing ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                          <SyncIcon size={16} color="var(--accent-green)" spinning />
+                          <span style={{ color: 'var(--accent-green)' }}>{t('status.syncing')}</span>
+                        </span>
+                      ) : (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                          <StatusIcon status={pair.status} />
+                          <span>{t(getSyncStatusLabelKey(pair.status))}</span>
+                        </span>
+                      )}
                     </td>
                     <td style={{ ...styles.td, color: 'var(--text-secondary)' }}>
                       {formatRelative(pair.last_sync, t)}
                     </td>
                     <td style={styles.td}>
-                      {pair.stats ? (
+                      {isActivelySyncing && progress.bytesTransferred > 0 ? (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--accent-blue)' }}>
+                          {formatBytes(progress.bytesTransferred)}
+                          {progress.bytesTotal > 0 && ` / ${formatBytes(progress.bytesTotal)}`}
+                        </span>
+                      ) : pair.stats ? (
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
                           {pair.stats.synced_files}/{pair.stats.total_files}
                         </span>
@@ -203,10 +257,10 @@ export const Dashboard: React.FC = () => {
                       <button
                         className="btn btn-sm btn-primary"
                         onClick={() => handleSync(pair.id)}
-                        disabled={syncingPairId === pair.id}
+                        disabled={syncingPairId === pair.id || isActivelySyncing}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       >
-                        {syncingPairId === pair.id ? (
+                        {syncingPairId === pair.id || isActivelySyncing ? (
                           <SyncIcon size={14} color="#fff" spinning />
                         ) : (
                           <PlayIcon size={14} color="#fff" />
@@ -215,7 +269,8 @@ export const Dashboard: React.FC = () => {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

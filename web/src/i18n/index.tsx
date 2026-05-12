@@ -116,6 +116,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'dashboard.syncTriggered': 'Sync triggered for all pairs',
     'dashboard.syncFailed': 'Sync failed',
     'dashboard.loadFailed': 'Failed to load dashboard data',
+    'dashboard.currentFile': 'Current file',
+    'dashboard.bytesTransferred': 'Transferred',
 
     // File Browser
     'files.title': 'File Browser',
@@ -335,6 +337,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'dashboard.syncTriggered': '已触发全部同步',
     'dashboard.syncFailed': '同步失败',
     'dashboard.loadFailed': '加载仪表盘数据失败',
+    'dashboard.currentFile': '当前文件',
+    'dashboard.bytesTransferred': '已传输',
 
     // File Browser
     'files.title': '文件浏览器',
