@@ -115,7 +115,7 @@ notification:
     from: ""
     to: []
 
-# 配置 WebDAV 服务器连接
+# 配置存储源连接
 providers:
   - name: "my-webdav"
     type: "webdav"
@@ -123,11 +123,39 @@ providers:
       endpoint: "https://dav.example.com"   # WebDAV 服务地址
       username: "user"                       # 用户名
       password: "pass"                       # 密码
+      prefix: ""                             # 可选：URL 路径前缀
+      timeout: "0"                           # 可选：请求超时（0 = 无限制，例如 "30m"）
+      auth_mode: "basic"                     # 可选："basic"（推荐）或 "auto"（支持 digest/passport）
+
+  # Local 文件系统存储源
+  # - name: "my-local"
+  #   type: "local"
+  #   params:
+  #     root_path: "/path/to/directory"      # 本地存储目录路径
 ```
 
-### 配置 WebDAV 服务器
+### 配置存储源
 
-支持三种方式配置 WebDAV 连接（优先级：CLI/API > 数据库 > 配置文件）：
+支持三种方式配置存储源（优先级：CLI/API > 数据库 > 配置文件）：
+
+#### 存储源类型与参数
+
+##### WebDAV
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| endpoint | 是 | WebDAV 服务器地址 |
+| username | 是 | 用户名 |
+| password | 是 | 密码 |
+| prefix | 否 | URL 路径前缀 |
+| timeout | 否 | 请求超时（默认无限制，例如 `"30m"`） |
+| auth_mode | 否 | 认证模式：`basic`（推荐，避免上传缓冲）或 `auto`（支持 digest/passport） |
+
+##### Local
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| root_path | 是 | 本地存储目录路径 |
 
 #### 方式一：配置文件
 
@@ -141,6 +169,15 @@ providers:
       endpoint: "https://your-webdav-server.com/dav"  # WebDAV 服务地址
       username: "your-username"
       password: "your-password"
+      prefix: ""                             # 可选：URL 路径前缀
+      timeout: "0"                           # 可选：请求超时（0 = 无限制）
+      auth_mode: "basic"                     # 可选："basic"（推荐）或 "auto"
+
+  # Local 文件系统存储源
+  - name: "my-local"
+    type: "local"
+    params:
+      root_path: "/path/to/directory"        # 本地存储目录路径
 ```
 
 #### 方式二：命令行
@@ -153,11 +190,18 @@ every-sync provider add \
   --endpoint "https://your-webdav-server.com/dav" \
   --username "your-username" \
   --password "your-password"
+
+# 添加 Local 文件系统存储源
+every-sync provider add \
+  --name "my-local" \
+  --type local \
+  --root-path "/path/to/directory"
 ```
 
 #### 方式三：REST API
 
 ```bash
+# WebDAV
 curl -X POST http://localhost:10086/api/v1/providers \
   -H 'Content-Type: application/json' \
   -d '{
@@ -166,7 +210,21 @@ curl -X POST http://localhost:10086/api/v1/providers \
     "params": {
       "endpoint": "https://your-webdav-server.com/dav",
       "username": "your-username",
-      "password": "your-password"
+      "password": "your-password",
+      "prefix": "",
+      "timeout": "0",
+      "auth_mode": "basic"
+    }
+  }'
+
+# Local
+curl -X POST http://localhost:10086/api/v1/providers \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "my-local",
+    "type": "local",
+    "params": {
+      "root_path": "/path/to/directory"
     }
   }'
 ```
@@ -241,6 +299,12 @@ every-sync provider add \
   --endpoint "http://localhost:5244/dav" \
   --username "admin" \
   --password "123456"
+
+# 添加 Local 文件系统存储源
+every-sync provider add \
+  --name "my-local" \
+  --type local \
+  --root-path "/data/sync-storage"
 
 # 查看已配置的存储后端
 every-sync provider list
@@ -596,7 +660,8 @@ curl -X POST http://localhost:10086/api/v1/providers \
     "params": {
       "endpoint": "http://localhost:5244/dav",
       "username": "admin",
-      "password": "123456"
+      "password": "123456",
+      "auth_mode": "basic"
     }
   }'
 ```

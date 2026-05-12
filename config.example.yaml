@@ -36,14 +36,22 @@ notification:
 
 # Storage providers
 providers:
+  # WebDAV provider
   - name: "my-webdav"
     type: "webdav"
     params:
-      endpoint: "https://dav.example.com"
-      username: "user"
-      password: "pass"
-      timeout: "0"             # optional: 0/empty = no total request timeout; use e.g. "30m" if desired
-      auth_mode: "basic"       # optional: basic avoids upload buffering; use "auto" for digest/passport servers
+      endpoint: "https://dav.example.com"    # Required: WebDAV server URL
+      username: "user"                        # Required: Username
+      password: "pass"                        # Required: Password
+      prefix: ""                              # Optional: URL path prefix
+      timeout: "0"                            # Optional: Total request timeout (0 = no limit, e.g. "30m")
+      auth_mode: "basic"                      # Optional: "basic" (recommended) or "auto" (for digest/passport)
+
+  # Local filesystem provider
+  - name: "my-local"
+    type: "local"
+    params:
+      root_path: "/path/to/directory"         # Required: Local directory path for storage
 
 # Sync pairs
 pairs:
@@ -51,7 +59,7 @@ pairs:
     local_path: "/home/user/photos"
     remote_path: "/photos"
     provider: "webdav"
-    mode: "mirror"             # mirror/selective/virtual
+    mode: "normal"             # normal/virtual (mirror/selective are legacy aliases for normal)
     direction: "both"          # up/down/both
     conflict_strategy: "latest_wins"  # latest_wins/local_wins/remote_wins/manual
     include_patterns: []
@@ -65,7 +73,7 @@ pairs:
     local_path: "/home/user/documents"
     remote_path: "/backup/docs"
     provider: "webdav"
-    mode: "mirror"
+    mode: "normal"
     direction: "up"            # upload only
     conflict_strategy: "latest_wins"
     enabled: true
