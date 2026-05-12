@@ -8,6 +8,7 @@ import { SyncIcon, PlayIcon } from '../components/Icons';
 import { Modal } from '../components/Modal';
 import { showToast } from '../components/Toast';
 import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
+import { useSyncProgress } from '../hooks/useSyncProgress';
 
 const emptyForm = {
   name: '',
@@ -23,8 +24,21 @@ const emptyForm = {
 
 type PairForm = typeof emptyForm;
 
+function truncate(str: string, maxLen: number): string {
+  if (str.length <= maxLen) return str;
+  return '...' + str.slice(str.length - maxLen + 3);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
 export const SyncPairs: React.FC = () => {
   const { t } = useI18n();
+  const { getProgress } = useSyncProgress();
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,29 +212,59 @@ export const SyncPairs: React.FC = () => {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          {pairs.map((pair) => (
-            <div key={pair.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)', flexWrap: 'wrap' }}>
-              <StatusIcon status={pair.status} size={20} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, marginBottom: '2px' }}>{pair.name}</div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                  {pair.local_path} <SyncIcon size={12} color="var(--accent-blue)" /> {pair.remote_path}
+          {pairs.map((pair) => {
+            const progress = getProgress(pair.id);
+            const isActivelySyncing = progress?.status === 'syncing';
+            const progressPercent = progress && progress.filesTotal > 0
+              ? Math.round((progress.filesSynced / progress.filesTotal) * 100)
+              : 0;
+
+            return (
+              <div key={pair.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)', flexWrap: 'wrap' }}>
+                {isActivelySyncing ? (
+                  <SyncIcon size={20} color="var(--accent-green)" spinning />
+                ) : (
+                  <StatusIcon status={pair.status} size={20} />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, marginBottom: '2px' }}>{pair.name}</div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                    {pair.local_path} <SyncIcon size={12} color="var(--accent-blue)" /> {pair.remote_path}
+                  </div>
+                  {isActivelySyncing && (
+                    <div style={{ marginTop: '4px' }}>
+                      <div style={{
+                        width: '100%', height: '3px', background: 'var(--border-default)',
+                        borderRadius: '2px', overflow: 'hidden',
+                      }}>
+                        <div style={{
+                          width: `${progressPercent}%`, height: '100%', background: 'var(--accent-green)',
+                          borderRadius: '2px', transition: 'width 0.3s ease',
+                        }} />
+                      </div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '2px', display: 'flex', gap: 'var(--space-3)' }}>
+                        <span>{progress.currentFile ? `📁 ${truncate(progress.currentFile, 50)}` : 'Processing...'}</span>
+                        {progress.filesTotal > 0 && <span>{progress.filesSynced}/{progress.filesTotal} files</span>}
+                        {progress.bytesTransferred > 0 && <span>{formatBytes(progress.bytesTransferred)}{progress.bytesTotal > 0 ? `/${formatBytes(progress.bytesTotal)}` : ''}</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
+                <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
+                <span className="badge badge-blue">{t(getPairDirectionLabelKey(pair.direction))}</span>
+                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                  <button className="btn btn-sm btn-primary" onClick={() => handleSync(pair.id)} disabled={syncingId === pair.id || isActivelySyncing} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    {syncingId === pair.id || isActivelySyncing ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}
+                    {t('dashboard.sync')}
+                  </button>
+                  <button className="btn btn-sm" onClick={() => openEdit(pair)} disabled={isActivelySyncing}>{t('common.edit')}</button>
+                  <button className="btn btn-sm" onClick={() => handleToggle(pair)}>{pair.enabled ? t('pairs.disable') : t('pairs.enable')}</button>
+                  <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(pair.id)} disabled={isActivelySyncing}>{t('common.delete')}</button>
                 </div>
               </div>
-              <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
-              <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
-              <span className="badge badge-blue">{t(getPairDirectionLabelKey(pair.direction))}</span>
-              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                <button className="btn btn-sm btn-primary" onClick={() => handleSync(pair.id)} disabled={syncingId === pair.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  {syncingId === pair.id ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}
-                  {t('dashboard.sync')}
-                </button>
-                <button className="btn btn-sm" onClick={() => openEdit(pair)}>{t('common.edit')}</button>
-                <button className="btn btn-sm" onClick={() => handleToggle(pair)}>{pair.enabled ? t('pairs.disable') : t('pairs.enable')}</button>
-                <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(pair.id)}>{t('common.delete')}</button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
