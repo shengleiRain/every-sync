@@ -22,9 +22,9 @@ type Server struct {
 	store      *store.Store
 }
 
-func New(s *store.Store, e *engine.Engine, addr string) *Server {
+func New(s *store.Store, e *engine.Engine, addr string, logPath string) *Server {
 	mux := http.NewServeMux()
-	h := handler.New(s, e)
+	h := handler.New(s, e, logPath)
 
 	api := http.NewServeMux()
 
@@ -47,6 +47,7 @@ func New(s *store.Store, e *engine.Engine, addr string) *Server {
 	api.HandleFunc("GET /api/v1/providers/{id}", h.GetProvider)
 	api.HandleFunc("PUT /api/v1/providers/{id}", h.UpdateProvider)
 	api.HandleFunc("DELETE /api/v1/providers/{id}", h.DeleteProvider)
+	api.HandleFunc("POST /api/v1/providers/test", h.TestProvider)
 
 	api.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

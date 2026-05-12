@@ -119,16 +119,20 @@ func DefaultConfig() Config {
 }
 
 type Event struct {
-	Type      string    `json:"type"`
-	Time      time.Time `json:"time"`
-	PairID    int64     `json:"pair_id,omitempty"`
-	PairName  string    `json:"pair_name,omitempty"`
-	TaskType  string    `json:"task_type,omitempty"`
-	Path      string    `json:"path,omitempty"`
-	Pending   int64     `json:"pending"`
-	Error     string    `json:"error,omitempty"`
-	Message   string    `json:"message,omitempty"`
-	Direction string    `json:"direction,omitempty"`
+	Type            string    `json:"type"`
+	Time            time.Time `json:"time"`
+	PairID          int64     `json:"pair_id,omitempty"`
+	PairName        string    `json:"pair_name,omitempty"`
+	TaskType        string    `json:"task_type,omitempty"`
+	Path            string    `json:"path,omitempty"`
+	Pending         int64     `json:"pending"`
+	Error           string    `json:"error,omitempty"`
+	Message         string    `json:"message,omitempty"`
+	Direction       string    `json:"direction,omitempty"`
+	BytesTransferred int64    `json:"bytes_transferred,omitempty"`
+	BytesTotal      int64     `json:"bytes_total,omitempty"`
+	FilesSynced     int       `json:"files_synced,omitempty"`
+	FilesTotal      int       `json:"files_total,omitempty"`
 }
 
 type Status struct {
@@ -188,6 +192,10 @@ type Engine struct {
 
 	subsMu sync.Mutex
 	subs   map[chan Event]struct{}
+
+	// Per-pair file sync progress tracking for current sync cycle.
+	pairFilesSynced map[int64]int // pairID -> count of synced files in current sync cycle
+	pairFilesTotal  map[int64]int // pairID -> total files to sync
 }
 
 func New(s *store.Store, cfg Config) *Engine {
@@ -195,14 +203,16 @@ func New(s *store.Store, cfg Config) *Engine {
 		cfg.MaxWorkers = runtime.NumCPU() * 2
 	}
 	return &Engine{
-		store:     s,
-		config:    cfg,
-		locals:    make(map[int64]provider.Provider),
-		remotes:   make(map[int64]provider.Provider),
-		pairs:     make(map[int64]*store.SyncPair),
-		taskQueue: make(chan SyncTask, cfg.QueueSize),
-		results:   make(chan TaskResult, cfg.QueueSize),
-		subs:      make(map[chan Event]struct{}),
+		store:           s,
+		config:          cfg,
+		locals:          make(map[int64]provider.Provider),
+		remotes:         make(map[int64]provider.Provider),
+		pairs:           make(map[int64]*store.SyncPair),
+		taskQueue:       make(chan SyncTask, cfg.QueueSize),
+		results:         make(chan TaskResult, cfg.QueueSize),
+		subs:            make(map[chan Event]struct{}),
+		pairFilesSynced: make(map[int64]int),
+		pairFilesTotal:  make(map[int64]int),
 	}
 }
 
@@ -571,12 +581,22 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 		dir = DirectionBoth
 	}
 
+	e.mu.Lock()
+	e.pairFilesSynced[pair.ID] = 0
+	e.pairFilesTotal[pair.ID] = 0
+	e.mu.Unlock()
+
 	e.broadcast(Event{Type: "sync_started", PairID: pair.ID, PairName: pair.Name, Direction: string(dir)})
 	if err := e.syncOnePair(ctx, pair, local, remote, dir); err != nil {
 		e.broadcast(Event{Type: "sync_failed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), Error: err.Error()})
 		return err
 	}
-	e.broadcast(Event{Type: "sync_completed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir)})
+
+	e.mu.RLock()
+	synced := e.pairFilesSynced[pair.ID]
+	total := e.pairFilesTotal[pair.ID]
+	e.mu.RUnlock()
+	e.broadcast(Event{Type: "sync_completed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), FilesSynced: synced, FilesTotal: total})
 	return nil
 }
 
@@ -778,6 +798,11 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 		Int("downloads", downloadCount).
 		Int("deletes", deleteCount).
 		Msg("tasks generated")
+
+	// Track total files to sync for progress events.
+	e.mu.Lock()
+	e.pairFilesTotal[pair.ID] = uploadCount + downloadCount
+	e.mu.Unlock()
 
 	if e.config.DryRun {
 		for _, task := range tasks {
@@ -2128,7 +2153,17 @@ func (e *Engine) processResults() {
 				}
 			} else {
 				atomic.AddInt64(&e.pending, -1)
-				e.broadcast(Event{Type: "task_completed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending)})
+				// Track synced file count for upload/download tasks.
+				if result.Task.Type == TaskUpload || result.Task.Type == TaskDownload {
+					e.mu.Lock()
+					e.pairFilesSynced[result.Task.PairID]++
+					synced := e.pairFilesSynced[result.Task.PairID]
+					total := e.pairFilesTotal[result.Task.PairID]
+					e.mu.Unlock()
+					e.broadcast(Event{Type: "task_completed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending), FilesSynced: synced, FilesTotal: total})
+				} else {
+					e.broadcast(Event{Type: "task_completed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending)})
+				}
 			}
 		}
 	}
@@ -2378,12 +2413,14 @@ func (r *chunkProgressReader) Read(p []byte) (int, error) {
 		r.read += int64(n)
 		for r.read >= r.next || (err == io.EOF && r.read == r.size) {
 			r.emit(Event{
-				Type:     "chunk_transferred",
-				PairID:   r.pair.ID,
-				PairName: r.pair.Name,
-				TaskType: string(r.taskType),
-				Path:     r.filePath,
-				Message:  fmt.Sprintf("%d/%d", r.read, r.size),
+				Type:             "chunk_transferred",
+				PairID:           r.pair.ID,
+				PairName:         r.pair.Name,
+				TaskType:         string(r.taskType),
+				Path:             r.filePath,
+				Message:          fmt.Sprintf("%d/%d", r.read, r.size),
+				BytesTransferred: r.read,
+				BytesTotal:       r.size,
 			})
 			r.next += r.chunkSize
 			if r.read < r.next {

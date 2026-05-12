@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha1"
 	"encoding/base64"
@@ -8,18 +9,21 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	syncengine "github.com/rain/every-sync/internal/engine"
 	"github.com/rain/every-sync/internal/logger"
+	"github.com/rain/every-sync/internal/provider"
 	"github.com/rain/every-sync/internal/store"
 )
 
 type Handler struct {
-	store  *store.Store
-	engine interface {
+	store   *store.Store
+	engine  interface {
 		RefreshPairs() error
 		RefreshAllPairs() error
 		SyncPair(ctx context.Context, pairID int64, direction string) error
@@ -29,7 +33,9 @@ type Handler struct {
 		Status() syncengine.Status
 		Subscribe(ctx context.Context) <-chan syncengine.Event
 		ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
+		UnregisterPair(pairID int64)
 	}
+	logPath string
 }
 
 func New(s *store.Store, e interface {
@@ -42,8 +48,9 @@ func New(s *store.Store, e interface {
 	Status() syncengine.Status
 	Subscribe(ctx context.Context) <-chan syncengine.Event
 	ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
-}) *Handler {
-	return &Handler{store: s, engine: e}
+	UnregisterPair(pairID int64)
+}, logPath string) *Handler {
+	return &Handler{store: s, engine: e, logPath: logPath}
 }
 
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +240,8 @@ func (h *Handler) DeletePair(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid pair id")
 		return
 	}
+
+	h.engine.UnregisterPair(id)
 
 	if err := h.store.DeleteSyncPair(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -539,8 +548,120 @@ func (h *Handler) ListVersions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versions)
 }
 
+type logEntry struct {
+	ID        int64  `json:"id"`
+	Timestamp string `json:"timestamp"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	PairID    int64  `json:"pair_id,omitempty"`
+}
+
 func (h *Handler) ListLogs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, []map[string]string{})
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	levelFilter := strings.ToLower(r.URL.Query().Get("level"))
+	pairIDFilter := r.URL.Query().Get("pair_id")
+
+	logFile := filepath.Join(h.logPath, "every-sync.log")
+	if h.logPath == "" {
+		writeJSON(w, http.StatusOK, []logEntry{})
+		return
+	}
+
+	f, err := os.Open(logFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, http.StatusOK, []logEntry{})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to open log file")
+		return
+	}
+	defer f.Close()
+
+	// Read lines from the end of the file. We read up to limit*2 lines to
+	// account for lines that may be filtered out.
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	bufSize := 256 * 1024
+	scanner.Buffer(make([]byte, bufSize), bufSize)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	// Take the last limit*2 lines for filtering headroom.
+	if len(lines) > limit*2 {
+		lines = lines[len(lines)-limit*2:]
+	}
+
+	// Parse lines in reverse order (newest first).
+	var entries []logEntry
+	for i := len(lines) - 1; i >= 0 && len(entries) < limit; i-- {
+		line := lines[i]
+		if line == "" {
+			continue
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			continue // skip non-JSON lines (partial writes, etc.)
+		}
+
+		entry := logEntry{
+			ID:        int64(len(entries)),
+			Timestamp: jsonStr(raw, "time"),
+			Level:     jsonStr(raw, "level"),
+			Message:   jsonStr(raw, "message"),
+		}
+		if v, ok := raw["pair_id"]; ok {
+			switch n := v.(type) {
+			case float64:
+				entry.PairID = int64(n)
+			case json.Number:
+				if iv, err := n.Int64(); err == nil {
+					entry.PairID = iv
+				}
+			}
+		}
+
+		// Apply filters.
+		if levelFilter != "" && entry.Level != levelFilter {
+			continue
+		}
+		if pairIDFilter != "" {
+			pid, err := strconv.ParseInt(pairIDFilter, 10, 64)
+			if err == nil && entry.PairID != pid {
+				continue
+			}
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if entries == nil {
+		entries = []logEntry{}
+	}
+
+	writeJSON(w, http.StatusOK, entries)
+}
+
+func jsonStr(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return fmt.Sprintf("%v", v)
+	}
+	return s
 }
 
 // --- Providers ---
@@ -672,13 +793,125 @@ func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pc, err := h.store.GetProviderConfig(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if pc == nil {
+		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	// Check for dependent sync pairs.
+	pairs, err := h.store.ListSyncPairs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var dependent []*store.SyncPair
+	for _, pair := range pairs {
+		if pair.Provider == pc.Name {
+			dependent = append(dependent, pair)
+		}
+	}
+
+	if len(dependent) > 0 {
+		force := r.URL.Query().Get("force")
+		if force != "true" {
+			type pairInfo struct {
+				ID   int64  `json:"id"`
+				Name string `json:"name"`
+			}
+			infos := make([]pairInfo, 0, len(dependent))
+			for _, p := range dependent {
+				infos = append(infos, pairInfo{ID: p.ID, Name: p.Name})
+			}
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error": "provider has dependent sync pairs",
+				"pairs": infos,
+			})
+			return
+		}
+
+		// Force delete: unregister and remove each dependent pair.
+		for _, pair := range dependent {
+			h.engine.UnregisterPair(pair.ID)
+			if err := h.store.DeleteSyncPair(pair.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("delete dependent pair %d: %v", pair.ID, err))
+				return
+			}
+		}
+	}
+
 	if err := h.store.DeleteProviderConfig(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	logger.Audit("provider.delete").Int64("id", id).Msg("provider deleted via API")
+	logger.Audit("provider.delete").Int64("id", id).Str("name", pc.Name).Msg("provider deleted via API")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+type TestProviderRequest struct {
+	ID     int64             `json:"id,omitempty"`
+	Type   string            `json:"type,omitempty"`
+	Params map[string]string `json:"params,omitempty"`
+}
+
+func (h *Handler) TestProvider(w http.ResponseWriter, r *http.Request) {
+	var req TestProviderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var providerType string
+	var providerParams map[string]string
+
+	if req.ID > 0 {
+		pc, err := h.store.GetProviderConfig(req.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if pc == nil {
+			writeError(w, http.StatusNotFound, "provider not found")
+			return
+		}
+		providerType = pc.Type
+		providerParams = pc.Params
+	} else if req.Type != "" {
+		providerType = req.Type
+		providerParams = req.Params
+		if providerParams == nil {
+			providerParams = map[string]string{}
+		}
+	} else {
+		writeError(w, http.StatusBadRequest, "id or type is required")
+		return
+	}
+
+	p, ok := provider.Create(providerType)
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown provider type: %s", providerType))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := p.Init(ctx, provider.Config{Type: providerType, Params: providerParams}); err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"status": "failed",
+			"error":  err.Error(),
+		})
+		return
+	}
+	_ = p.Close()
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // --- Helpers ---

@@ -172,7 +172,7 @@ func cmdServe(args []string) {
 
 	port := fs.Lookup("port").Value.String()
 	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, port)
-	srv := server.New(s, eng, addr)
+	srv := server.New(s, eng, addr, cfg.Log.Path)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
