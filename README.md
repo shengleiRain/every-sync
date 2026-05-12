@@ -5,10 +5,12 @@
 ## 特性
 
 - **多方向同步**：支持上传（up）、下载（down）、双向（both）
-- **增量同步**：通过文件修改时间和大小对比，只同步变更文件
+- **增量同步**：基于 xxhash 内容哈希的双阶段变更检测，WebDAV 支持 ETag 缓存跳过未变目录
 - **插件化存储**：统一 Provider 接口，V1 支持 Local + WebDAV，后续扩展 S3/OneDrive 等
+- **多冲突策略**：latest_wins / local_wins / remote_wins / keep_both / rename / manual / skip
 - **Worker Pool**：多线程并发传输，可配置并发数
 - **REST API**：`/api/v1/` 接口，支持前后端分离部署
+- **React Web UI**：现代化 SPA 管理界面（仪表盘、文件浏览、冲突处理、版本历史、实时日志）
 - **CLI 管理**：完整的命令行管理工具
 - **Linux 优先**：优先支持 Linux 平台
 
@@ -22,16 +24,16 @@
 - [x] SQLite 存储层（自动迁移 + 文件索引）
 - [x] 同步引擎（Worker Pool + 方向过滤）
 - [x] 同步方向：up（仅上传）/ down（仅下载）/ both（双向）
-- [x] 冲突检测（latest_wins 策略）
+- [x] 冲突检测（modify-modify / modify-delete / delete-modify 三种冲突类型）
 - [x] CLI 命令（serve / sync / pair / provider / status / version）
 - [x] REST API（/api/v1/pairs CRUD + CORS）
 - [x] 带宽控制配置
-- [x] 单元测试（15 个测试 + race detection）
+- [x] 单元测试 + E2E 集成测试（Local-to-Local、WebDAV、HTTP API 全覆盖）
 
 ### Phase 2 - Web UI + 生产就绪（本地版已完成，Docker 跳过）
 
-- [x] Web 管理界面（嵌入式单页管理界面，本地直接运行）
-- [x] WebSocket 实时状态推送
+- [x] React SPA 管理界面（仪表盘、文件浏览、同步对管理、存储源管理、冲突处理、版本历史、实时日志）
+- [x] WebSocket 实时状态推送 + 连接状态指示
 - [x] 分块传输进度事件（大文件按 chunk_size 上报）
 - [x] 断点续传能力检测（源端 Range 读取 + 目标端 offset 写入时启用；WebDAV 上传不伪装支持）
 - [x] 传输限速与失败重试
@@ -42,11 +44,14 @@
 
 ### Phase 3 - 高级特性（已完成）
 
+- [x] normal 模式（统一 mirror + selective，支持 selected_folders 文件夹级选择）
 - [x] virtual 模式（远端文件先索引为 virtual，通过 CLI/API/Web UI 按需下载）
-- [x] selective 模式（include/exclude 过滤规则）
 - [x] Web UI 冲突处理界面
-- [x] 多冲突解决策略（latest_wins / local_wins / remote_wins / manual / skip）
-- [x] 文件版本历史（覆盖/删除前记录版本元数据）
+- [x] 多冲突解决策略（latest_wins / local_wins / remote_wins / keep_both / rename / manual / skip）
+- [x] xxhash 双阶段变更检测（大文件 QuickHash 采样头尾，小文件全量哈希）
+- [x] WebDAV 增量扫描（ETag 缓存 + 每对独立 scan_interval）
+- [x] 目录级追踪（创建/删除目录任务，数据库记录 is_dir 标记）
+- [x] 文件版本历史（覆盖/删除前记录版本元数据，支持搜索和恢复）
 - [x] 同步流量/冲突/virtual 统计
 - [x] 通知集成（Webhook / SMTP 邮件，默认关闭）
 
@@ -61,6 +66,7 @@
 ### 安装依赖
 
 - Go 1.22+
+- Node.js 18+（前端构建需要）
 - GCC（SQLite CGO 编译需要）
 
 ### 编译
@@ -185,12 +191,13 @@ pairs:
     remote_path: "/photos"
     provider: "my-webdav"              # 对应 providers 中的 name
     direction: "both"
-    mode: "mirror"                     # mirror/selective/virtual
-    conflict_strategy: "latest_wins"   # latest_wins/local_wins/remote_wins/manual
-    include_patterns: []
+    mode: "normal"                     # normal/virtual
+    conflict_strategy: "latest_wins"   # latest_wins/local_wins/remote_wins/keep_both/rename/manual/skip
     exclude_patterns:
       - "*.tmp"
       - "cache/**"
+    selected_folders: []               # 留空=同步全部文件夹，指定则只同步选中文件夹
+    scan_interval: 300                 # 每对独立扫描间隔（秒），覆盖全局 scan_interval
     enabled: true
 ```
 
@@ -202,7 +209,7 @@ every-sync pair add \
   --remote /photos \
   --provider my-webdav \               # provider 名称
   --direction both \
-  --mode selective \
+  --mode normal \
   --exclude "*.tmp,cache/**"
 ```
 
@@ -269,7 +276,7 @@ every-sync pair add \
   --provider alist \
   --direction both
 
-# selective 模式：只同步命中 include 且未命中 exclude 的文件
+# selective 模式（兼容旧写法，内部映射为 normal + include/exclude）
 every-sync pair add \
   --name "文档" \
   --local /home/user/docs \
@@ -323,10 +330,10 @@ every-sync pair remove 1
 #   --remote     远程目录路径
 #   --provider   存储后端名称（通过 'every-sync provider list' 查看）
 #   --direction  同步方向（up / down / both）
-#   --mode       同步模式（mirror / selective / virtual）
-#   --include    selective include 规则，逗号或换行分隔
-#   --exclude    selective exclude 规则，逗号或换行分隔
-#   --conflict-strategy latest_wins / local_wins / remote_wins / manual
+#   --mode       同步模式（normal / virtual，旧写法 mirror/selective 兼容）
+#   --include    include 规则，逗号或换行分隔
+#   --exclude    exclude 规则，逗号或换行分隔
+#   --conflict-strategy latest_wins / local_wins / remote_wins / keep_both / rename / manual / skip
 ```
 
 ### 4. 执行同步
@@ -355,7 +362,7 @@ every-sync status
 # Sync pairs: 1
 #
 #   [1] 我的照片 (enabled)
-#       Direction: both | Mode: mirror | Provider: alist
+#       Direction: both | Mode: normal | Provider: alist
 #       Local: /home/user/photos -> Remote: /photos
 #       Files: 128 indexed, 3 pending
 ```
@@ -438,7 +445,7 @@ curl -X POST http://localhost:10086/api/v1/sync \
 GET /api/v1/events
 ```
 
-这是 WebSocket 端点，推送引擎启动、文件变更、任务入队、任务完成、chunk 进度和同步结果事件。
+这是 WebSocket 端点，推送引擎启动、文件变更、任务入队、任务完成、chunk 进度、冲突检测和同步结果事件。
 
 ### 断点续传能力边界
 
@@ -468,10 +475,10 @@ curl -X POST http://localhost:10086/api/v1/pairs \
     "local_path": "/home/user/documents",
     "remote_path": "/backup/docs",
     "provider": "alist",
-    "mode": "selective",
+    "mode": "normal",
     "direction": "up",
     "exclude_patterns": "*.tmp,cache/**",
-    "conflict_strategy": "manual"
+    "conflict_strategy": "keep_both"
   }'
 ```
 
@@ -499,16 +506,42 @@ curl -X PUT http://localhost:10086/api/v1/pairs/1 \
     "local_path": "/home/user/documents",
     "remote_path": "/backup/docs",
     "provider": "alist",
-    "mode": "mirror",
+    "mode": "normal",
     "direction": "both",
     "enabled": true,
-    "include_patterns": "",
     "exclude_patterns": "*.tmp,cache/**",
-    "conflict_strategy": "latest_wins"
+    "conflict_strategy": "latest_wins",
+    "selected_folders": ["/photos", "/docs"],
+    "scan_interval": 600
   }'
 ```
 
-#### Phase 3 接口
+#### 文件列表与文件夹选择
+
+```
+GET /api/v1/pairs/{id}/files?path=/&side=local
+```
+
+```bash
+# 浏览同步对的本地文件
+curl 'http://localhost:10086/api/v1/pairs/1/files?path=/&side=local'
+
+# 浏览远程文件
+curl 'http://localhost:10086/api/v1/pairs/1/files?path=/docs&side=remote'
+```
+
+```
+POST /api/v1/pairs/{id}/folders/select
+```
+
+```bash
+# 设置 normal 模式下只同步指定文件夹
+curl -X POST http://localhost:10086/api/v1/pairs/1/folders/select \
+  -H 'Content-Type: application/json' \
+  -d '{"folders":["/photos","/docs"]}'
+```
+
+#### 高级接口
 
 ```bash
 # 按需下载 virtual 文件
@@ -522,7 +555,7 @@ curl -X POST http://localhost:10086/api/v1/conflicts/1/resolve \
   -H 'Content-Type: application/json' \
   -d '{"strategy":"remote_wins"}'
 
-# 查询文件版本历史
+# 查询文件版本历史（支持搜索和恢复）
 curl 'http://localhost:10086/api/v1/versions?pair_id=1&path=/docs/a.md'
 ```
 
@@ -625,31 +658,51 @@ curl -X DELETE http://localhost:10086/api/v1/providers/1
 
 | 模式 | 值 | 行为 | 适合场景 |
 |------|----|------|----------|
-| 镜像 | `mirror` | 同步所有未被规则排除的文件；文件内容会真实复制到目标端。方向为 `both` 时两端尽量保持一致；方向为 `up`/`down` 时只按单方向复制和删除。 | 常规备份、多设备完整同步 |
-| 选择性同步 | `selective` | 在 `mirror` 的基础上应用 `include_patterns` 和 `exclude_patterns`。有 include 时，只同步命中 include 的文件；exclude 永远优先排除。 | 只同步文档、排除缓存/临时文件 |
-| 虚拟文件 | `virtual` | 远端文件先写入索引，不自动下载内容到本地；需要文件时通过 Web UI/API/CLI materialize 单个文件。本地已有或本地新增文件仍可按方向上传/处理。 | 云端资料很多、本地磁盘有限、按需取用 |
+| 普通同步 | `normal` | 同步所有未被规则排除的文件。支持 `exclude_patterns` 排除、`selected_folders` 指定只同步哪些文件夹。方向为 `both` 时两端尽量保持一致；方向为 `up`/`down` 时只按单方向复制和删除。 | 常规备份、多设备同步 |
+| 虚拟文件 | `virtual` | 远端文件先写入索引，不自动下载内容到本地；需要文件时通过 Web UI/API/CLI materialize 单个文件。本地已有或本地新增文件仍可按方向上传/处理。强制 `direction: both`。 | 云端资料很多、本地磁盘有限、按需取用 |
+
+旧写法 `mirror` 和 `selective` 仍被接受，内部统一映射为 `normal`。`mirror` → `normal`（无过滤规则）；`selective` → `normal`（保留 include/exclude 规则）。
 
 几个容易混淆的点：
 
-- `mode` 不是方向。`mirror + up` 表示“把本地镜像上传到远端”；`mirror + down` 表示“把远端镜像下载到本地”；`mirror + both` 才是双向镜像。
-- `selective` 不等于单向同步，它只是过滤文件集合；具体上传、下载还是双向由 `direction` 决定。
-- `virtual` 的核心是不自动下载远端内容。通常配 `direction: down` 用来浏览/索引远端文件，再按需 materialize；配 `both` 时，本地新增文件仍会上传到远端，但远端新增文件仍先保持 virtual。
+- `mode` 不是方向。`normal + up` 表示”把本地同步上传到远端”；`normal + down` 表示”把远端同步下载到本地”；`normal + both` 才是双向同步。
+- `virtual` 的核心是不自动下载远端内容。配 `both` 时，本地新增文件仍会上传到远端，但远端新增文件仍先保持 virtual；远端变更时会重新 virtualize。
 - 删除传播也受方向影响：`up` 会把本地删除同步到远端，`down` 会把远端删除同步到本地，`both` 会根据双方状态和历史索引判断。
+
+## 冲突策略说明
+
+| 策略 | 值 | 行为 |
+|------|----|------|
+| 最新优先 | `latest_wins` | 比较 ModTime，保留较新版本同步到两端（默认策略） |
+| 本地优先 | `local_wins` | 冲突时始终保留本地版本 |
+| 远程优先 | `remote_wins` | 冲突时始终保留远程版本 |
+| 保留双方 | `keep_both` | 保留两个版本，将较新版本同步到两端 |
+| 重命名 | `rename` | 将较旧版本重命名为”冲突副本 YYYY-MM-DD”，较新版本同步到两端 |
+| 手动处理 | `manual` | 记录冲突但不自动解决，等待用户在 Web UI/API 手动处理 |
+| 跳过 | `skip` | 跳过冲突文件，不做任何操作 |
+
+冲突检测类型：
+- **modify-modify**：两端都修改了同一文件（经典冲突）
+- **modify-delete**：本地修改了文件但远端已删除
+- **delete-modify**：远端修改了文件但本地已删除
 
 ## 开发
 
 ```bash
-# 安装依赖
-make deps
+# 安装 Go 依赖
+go mod tidy
 
-# 编译
+# 安装前端依赖
+make web-deps
+
+# 编译（含前端构建）
 make build
+
+# 仅构建前端
+make web-build
 
 # 运行测试
 make test
-
-# 格式化代码
-make fmt
 
 # 清理
 make clean
@@ -662,16 +715,23 @@ every-sync/
 ├── cmd/every-sync/              # CLI 入口
 ├── internal/
 │   ├── config/                  # 配置管理
-│   ├── engine/                  # 同步引擎（调度器 + Worker Pool）
+│   ├── engine/                  # 同步引擎（调度器 + Worker Pool + 冲突检测）
+│   ├── pkg/
+│   │   └── hash/                # xxhash 文件哈希（全量 + QuickHash 采样）
 │   ├── provider/                # 存储后端
-│   │   ├── provider.go          # Provider 接口 + 注册表
+│   │   ├── provider.go          # Provider 接口 + 注册表 + 能力检测
 │   │   ├── local/               # 本地文件系统
-│   │   └── webdav/              # WebDAV 协议
+│   │   └── webdav/              # WebDAV 协议（ETag 缓存 + 增量扫描）
 │   ├── server/                  # HTTP API 服务
 │   │   └── handler/             # API handlers
-│   ├── store/                   # SQLite 持久层
-│   │   └── migrations/          # 数据库迁移
-│   └── pkg/                     # 内部工具库
+│   └── store/                   # SQLite 持久层
+│       └── migrations/          # 数据库迁移
+├── web/                         # React 前端（Vite + TypeScript）
+│   └── src/
+│       ├── pages/               # Dashboard / FileBrowser / SyncPairs / Providers / Conflicts / Versions / Logs
+│       ├── components/          # Sidebar / Modal / Toast / Icons / Breadcrumb / StatusIcon
+│       ├── hooks/               # useWebSocket
+│       └── api/                 # API client
 ├── docs/plans/                  # 设计文档
 ├── config.example.yaml          # 示例配置
 └── Makefile                     # 构建脚本
