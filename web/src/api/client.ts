@@ -195,10 +195,10 @@ export async function listConflicts(pairId?: string): Promise<ConflictEntry[]> {
   return fetchJSON<ConflictEntry[]>(`/conflicts${query}`);
 }
 
-export async function resolveConflict(conflictId: string, resolution: 'local' | 'remote'): Promise<void> {
+export async function resolveConflict(conflictId: string, resolution: string): Promise<void> {
   await fetchJSON(`/conflicts/${conflictId}/resolve`, {
     method: 'POST',
-    body: JSON.stringify({ resolution }),
+    body: JSON.stringify({ strategy: resolution }),
   });
 }
 

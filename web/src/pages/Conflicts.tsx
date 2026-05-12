@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { listConflicts, resolveConflict } from '../api/client';
 import type { ConflictEntry } from '../api/client';
 import { WarningIcon } from '../components/Icons';
+import { showToast } from '../components/Toast';
 
 export const Conflicts: React.FC = () => {
   const [conflicts, setConflicts] = useState<ConflictEntry[]>([]);
@@ -15,13 +16,17 @@ export const Conflicts: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleResolve = async (id: string, resolution: 'local' | 'remote') => {
+  const handleResolve = async (id: string, strategy: string) => {
     setResolving(id);
     try {
-      await resolveConflict(id, resolution);
+      await resolveConflict(id, strategy);
       setConflicts((prev) => prev.filter((c) => c.id !== id));
-    } catch { /* ignore */ }
-    finally { setResolving(null); }
+      showToast('Conflict resolved', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Resolution failed', 'error');
+    } finally {
+      setResolving(null);
+    }
   };
 
   return (
@@ -66,21 +71,11 @@ export const Conflicts: React.FC = () => {
                   <div>Size: {c.remote_size} bytes</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                <button
-                  className="btn btn-sm btn-primary"
-                  disabled={resolving === c.id}
-                  onClick={() => handleResolve(c.id, 'local')}
-                >
-                  Keep Local
-                </button>
-                <button
-                  className="btn btn-sm"
-                  disabled={resolving === c.id}
-                  onClick={() => handleResolve(c.id, 'remote')}
-                >
-                  Keep Remote
-                </button>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                <button className="btn btn-sm btn-primary" disabled={resolving === c.id} onClick={() => handleResolve(c.id, 'local_wins')}>Keep Local</button>
+                <button className="btn btn-sm" disabled={resolving === c.id} onClick={() => handleResolve(c.id, 'remote_wins')}>Keep Remote</button>
+                <button className="btn btn-sm" disabled={resolving === c.id} onClick={() => handleResolve(c.id, 'latest_wins')}>Latest Wins</button>
+                <button className="btn btn-sm" style={{ color: 'var(--accent-amber)' }} disabled={resolving === c.id} onClick={() => handleResolve(c.id, 'skip')}>Skip</button>
               </div>
             </div>
           ))}
