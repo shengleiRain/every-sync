@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path"
 	"strings"
@@ -142,47 +141,8 @@ func (w *WebDAVProvider) PutFile(_ context.Context, remotePath string, reader io
 	return nil
 }
 
-func newClient(endpoint, username, password, authMode string) *gowebdav.Client {
-	if strings.EqualFold(strings.TrimSpace(authMode), "auto") || (username == "" && password == "") {
-		return gowebdav.NewClient(endpoint, username, password)
-	}
-	return gowebdav.NewAuthClient(endpoint, basicAuthorizer{username: username, password: password})
-}
-
-type basicAuthorizer struct {
-	username string
-	password string
-}
-
-func (a basicAuthorizer) NewAuthenticator(body io.Reader) (gowebdav.Authenticator, io.Reader) {
-	return basicAuthenticator{username: a.username, password: a.password}, body
-}
-
-func (a basicAuthorizer) AddAuthenticator(string, gowebdav.AuthFactory) {}
-
-type basicAuthenticator struct {
-	username string
-	password string
-}
-
-func (a basicAuthenticator) Authorize(_ *http.Client, req *http.Request, _ string) error {
-	req.SetBasicAuth(a.username, a.password)
-	return nil
-}
-
-func (a basicAuthenticator) Verify(_ *http.Client, resp *http.Response, path string) (bool, error) {
-	if resp.StatusCode == http.StatusUnauthorized {
-		return false, gowebdav.NewPathError("Authorize", path, resp.StatusCode)
-	}
-	return false, nil
-}
-
-func (a basicAuthenticator) Clone() gowebdav.Authenticator {
-	return a
-}
-
-func (a basicAuthenticator) Close() error {
-	return nil
+func newClient(endpoint, username, password, _ string) *gowebdav.Client {
+	return gowebdav.NewClient(endpoint, username, password)
 }
 
 func errorsIsProvider(err error) bool {

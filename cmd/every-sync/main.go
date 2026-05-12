@@ -788,16 +788,20 @@ func registerAllPairs(eng *engine.Engine, s *store.Store, cfg *config.Config) er
 		return err
 	}
 
+	var firstErr error
 	for _, pair := range pairs {
 		if !pair.Enabled {
 			continue
 		}
 		if err := registerPairWithProviders(eng, pair, providers); err != nil {
-			return err
+			logger.L.Warn().Err(err).Int64("pair_id", pair.ID).Str("name", pair.Name).Msg("skipping pair, will retry on next refresh")
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 func registerPair(eng *engine.Engine, s *store.Store, cfg *config.Config, pair *store.SyncPair) error {
