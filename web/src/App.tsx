@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
+import { ToastContainer } from './components/Toast';
 import { Dashboard } from './pages/Dashboard';
 import { FileBrowser } from './pages/FileBrowser';
 import { SyncPairs } from './pages/SyncPairs';
@@ -47,6 +48,7 @@ const App: React.FC = () => {
 
   return (
     <BrowserRouter>
+      <ToastContainer />
       <Routes>
         <Route element={<Layout conflictCount={conflictCount} />}>
           <Route index element={<Dashboard />} />
