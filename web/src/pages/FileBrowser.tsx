@@ -16,6 +16,7 @@ import {
 } from '../components/Icons';
 import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
 import { showToast } from '../components/Toast';
+import { useSyncProgress } from '../hooks/useSyncProgress';
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '—';
@@ -68,6 +69,11 @@ export const FileBrowser: React.FC = () => {
   });
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const { getProgress } = useSyncProgress();
+  const syncProgress = selectedPairId ? getProgress(selectedPairId) : undefined;
+  const syncStatus = syncProgress?.status || 'idle';
+  const prevSyncStatus = useRef(syncStatus);
+
   const selectedPair = pairs.find((p) => p.id === selectedPairId);
   const selectedFolders = React.useMemo(() => {
     if (!selectedPair?.selected_folders) return new Set<string>();
@@ -115,6 +121,19 @@ export const FileBrowser: React.FC = () => {
       return () => document.removeEventListener('mousedown', handleClick);
     }
   }, [actionMenu.visible]);
+
+  // Refresh file list when sync completes
+  useEffect(() => {
+    if (prevSyncStatus.current === 'syncing' && syncStatus === 'completed' && selectedPairId) {
+      setLoading(true);
+      setError(null);
+      listFiles(selectedPairId, currentPath, side)
+        .then((files) => setEntries(files))
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false));
+    }
+    prevSyncStatus.current = syncStatus;
+  }, [syncStatus, selectedPairId, currentPath, side]);
 
   const handleNavigate = useCallback((path: string) => {
     setCurrentPath(path);
@@ -261,6 +280,34 @@ export const FileBrowser: React.FC = () => {
             <span className="badge badge-blue">{t(getPairDirectionLabelKey(selectedPair.direction))}</span>
           </div>
         )}
+
+        {selectedPairId && syncProgress?.status === 'syncing' && (() => {
+          const progress = syncProgress;
+          const percent = progress.filesTotal > 0 ? Math.round((progress.filesSynced / progress.filesTotal) * 100) : 0;
+          return (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-3)',
+              marginTop: 'var(--space-2)',
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--accent-blue-bg)',
+              border: '1px solid var(--accent-blue)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--accent-blue)',
+            }}>
+              <SyncIcon size={16} spinning />
+              <span style={{ flex: 1 }}>
+                {progress.currentFile ? `Syncing: ${progress.currentFile.length > 60 ? '...' + progress.currentFile.slice(-57) : progress.currentFile}` : 'Processing...'}
+              </span>
+              {progress.filesTotal > 0 && <span>{progress.filesSynced}/{progress.filesTotal} ({percent}%)</span>}
+              <div style={{ width: '120px', height: '4px', background: 'var(--border-default)', borderRadius: '2px', overflow: 'hidden' }}>
+                <div style={{ width: `${percent}%`, height: '100%', background: 'var(--accent-blue)', borderRadius: '2px', transition: 'width 0.3s ease' }} />
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
         {selectedPairId && (
@@ -335,6 +382,7 @@ export const FileBrowser: React.FC = () => {
             onActionClick={handleActionClick}
             onSelectionToggle={handleFolderSelection}
             selected={entry.type === 'folder' && (selectedFolders.has(entry.path) || Boolean(entry.selected))}
+            isFileSyncing={syncProgress?.status === 'syncing' && syncProgress.currentFile === entry.path}
             t={t}
           />
         ))}
@@ -379,10 +427,11 @@ interface FileRowProps {
   onActionClick: (e: React.MouseEvent, entry: FileEntry) => void;
   onSelectionToggle: (entry: FileEntry, selected: boolean) => void;
   selected: boolean;
+  isFileSyncing: boolean;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, onSelectionToggle, selected, t }) => {
+const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, onSelectionToggle, selected, isFileSyncing, t }) => {
   const isFolder = entry.type === 'folder';
   const [hovered, setHovered] = useState(false);
 
@@ -399,7 +448,8 @@ const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, 
         padding: 'var(--space-1) var(--space-4)',
         borderBottom: '1px solid var(--border-muted)',
         cursor: isFolder ? 'pointer' : 'default',
-        background: hovered ? 'var(--bg-surface-hover)' : 'transparent',
+        background: isFileSyncing ? 'var(--accent-blue-bg)' : (hovered ? 'var(--bg-surface-hover)' : 'transparent'),
+        borderLeft: isFileSyncing ? '3px solid var(--accent-blue)' : '3px solid transparent',
         transition: 'background var(--transition-fast)',
         fontSize: 'var(--text-sm)',
       }}
