@@ -12,7 +12,7 @@ import { Logs } from './pages/Logs';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { WSEvent } from './api/client';
 
-const Layout: React.FC<{ conflictCount: number }> = ({ conflictCount }) => (
+const Layout: React.FC<{ conflictCount: number; wsConnected: boolean }> = ({ conflictCount, wsConnected }) => (
   <div
     style={{
       display: 'flex',
@@ -21,7 +21,7 @@ const Layout: React.FC<{ conflictCount: number }> = ({ conflictCount }) => (
       overflow: 'hidden',
     }}
   >
-    <Sidebar conflictCount={conflictCount} />
+    <Sidebar conflictCount={conflictCount} wsConnected={wsConnected} />
     <main
       style={{
         flex: 1,
@@ -44,13 +44,13 @@ const App: React.FC = () => {
     }
   }, []);
 
-  useWebSocket({ onEvent: handleWSEvent });
+  const { connected: wsConnected } = useWebSocket({ onEvent: handleWSEvent });
 
   return (
     <BrowserRouter>
       <ToastContainer />
       <Routes>
-        <Route element={<Layout conflictCount={conflictCount} />}>
+        <Route element={<Layout conflictCount={conflictCount} wsConnected={wsConnected} />}>
           <Route index element={<Dashboard />} />
           <Route path="/files" element={<FileBrowser />} />
           <Route path="/pairs" element={<SyncPairs />} />

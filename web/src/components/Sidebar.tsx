@@ -15,6 +15,7 @@ import {
 
 interface SidebarProps {
   conflictCount?: number;
+  wsConnected?: boolean;
 }
 
 interface NavItem {
@@ -33,7 +34,7 @@ const navItems: NavItem[] = [
   { to: '/logs', label: 'Logs', icon: DocumentIcon },
 ];
 
-export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0 }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected = false }) => {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
@@ -207,6 +208,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0 }) => {
             gap: '2px',
           }}
         >
+          {!collapsed && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              <div style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: wsConnected ? 'var(--accent-green)' : 'var(--accent-red)',
+                flexShrink: 0,
+              }} />
+              {wsConnected ? 'Connected' : 'Disconnected'}
+            </div>
+          )}
           <button
             onClick={toggleTheme}
             className="btn-ghost"

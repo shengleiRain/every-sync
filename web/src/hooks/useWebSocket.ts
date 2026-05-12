@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { WSEvent } from '../api/client';
 
 interface UseWebSocketOptions {
@@ -7,6 +7,7 @@ interface UseWebSocketOptions {
 }
 
 export function useWebSocket({ onEvent, enabled = true }: UseWebSocketOptions) {
+  const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const onEventRef = useRef(onEvent);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -24,6 +25,7 @@ export function useWebSocket({ onEvent, enabled = true }: UseWebSocketOptions) {
 
     ws.onopen = () => {
       console.debug('[WS] Connected to event stream');
+      setConnected(true);
     };
 
     ws.onmessage = (event) => {
@@ -37,6 +39,7 @@ export function useWebSocket({ onEvent, enabled = true }: UseWebSocketOptions) {
 
     ws.onclose = () => {
       console.debug('[WS] Disconnected, reconnecting in 3s...');
+      setConnected(false);
       wsRef.current = null;
       reconnectTimerRef.current = setTimeout(connect, 3000);
     };
@@ -61,9 +64,5 @@ export function useWebSocket({ onEvent, enabled = true }: UseWebSocketOptions) {
     };
   }, [connect]);
 
-  return {
-    get connected() {
-      return wsRef.current?.readyState === WebSocket.OPEN;
-    },
-  };
+  return { connected };
 }
