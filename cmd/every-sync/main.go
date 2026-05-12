@@ -48,6 +48,10 @@ func main() {
 		cmdStatus(os.Args[2:])
 	case "version":
 		fmt.Printf("EverySync %s\n", version)
+	case "stop":
+		cmdStop(os.Args[2:])
+	case "restart":
+		cmdRestart(os.Args[2:])
 	default:
 		printUsage()
 		os.Exit(1)
@@ -62,6 +66,8 @@ Usage:
 
 Commands:
   serve       Start the sync daemon
+  stop        Stop the running daemon
+  restart     Restart the running daemon
   sync        Manually trigger sync
   pair        Manage sync pairs
   provider    Manage storage providers
@@ -177,8 +183,16 @@ func cmdServe(args []string) {
 		}
 	}()
 
+	// Write PID file after successful startup.
+	pFile := pidFilePath()
+	if err := writePID(pFile); err != nil {
+		logger.L.Fatal().Err(err).Msg("writing PID file")
+	}
+
 	<-sigCh
 	logger.L.Info().Msg("shutting down")
+
+	removePID(pFile)
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -955,4 +969,131 @@ func cleanRemotePrefix(remotePath string) string {
 		return ""
 	}
 	return cleaned
+}
+
+// --- PID file management ---
+
+func pidFilePath() string {
+	dir := pidDir()
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, "every-sync.pid")
+}
+
+func pidDir() string {
+	if dataDir != "" {
+		return dataDir
+	}
+	if configPath != "" {
+		return filepath.Dir(configPath)
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".every-sync")
+}
+
+func writePID(path string) error {
+	// Check if an existing process is still alive.
+	data, err := os.ReadFile(path)
+	if err == nil {
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err == nil && pid > 0 {
+			if proc, _ := os.FindProcess(pid); proc != nil {
+				if proc.Signal(syscall.Signal(0)) == nil {
+					return fmt.Errorf("every-sync already running (pid %d)", pid)
+				}
+			}
+		}
+		_ = os.Remove(path)
+	}
+
+	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644)
+}
+
+func removePID(path string) {
+	os.Remove(path)
+}
+
+// --- Stop & Restart ---
+
+func cmdStop(_ []string) {
+	pidFile := pidFilePath()
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "every-sync is not running (pid file not found)")
+		os.Exit(1)
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid pid file content: %s\n", string(data))
+		os.Remove(pidFile)
+		os.Exit(1)
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot find process %d: %v\n", pid, err)
+		os.Remove(pidFile)
+		os.Exit(1)
+	}
+
+	// Check if process is alive.
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		fmt.Fprintln(os.Stderr, "every-sync is not running")
+		os.Remove(pidFile)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Stopping every-sync (pid %d)...\n", pid)
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to send SIGTERM: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Wait for process to exit, up to 30s.
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if proc.Signal(syscall.Signal(0)) != nil {
+			fmt.Println("Stopped.")
+			os.Remove(pidFile)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	fmt.Fprintln(os.Stderr, "timed out waiting for process to exit, force killing...")
+	proc.Signal(syscall.SIGKILL)
+	os.Remove(pidFile)
+}
+
+func cmdRestart(args []string) {
+	pidFile := pidFilePath()
+
+	// Try to stop existing process.
+	if data, err := os.ReadFile(pidFile); err == nil {
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err == nil && pid > 0 {
+			if proc, _ := os.FindProcess(pid); proc != nil {
+				if proc.Signal(syscall.Signal(0)) == nil {
+					fmt.Printf("Stopping every-sync (pid %d)...\n", pid)
+					proc.Signal(syscall.SIGTERM)
+					deadline := time.Now().Add(30 * time.Second)
+					for time.Now().Before(deadline) {
+						if proc.Signal(syscall.Signal(0)) != nil {
+							break
+						}
+						time.Sleep(200 * time.Millisecond)
+					}
+					os.Remove(pidFile)
+					fmt.Println("Stopped. Restarting...")
+				}
+			}
+		}
+	} else {
+		fmt.Println("No running instance found. Starting...")
+	}
+
+	// Re-exec current binary with "serve" + original args.
+	execArgs := append([]string{"serve"}, args...)
+	binary, _ := os.Executable()
+	syscall.Exec(binary, append([]string{os.Args[0]}, execArgs...), os.Environ())
 }
