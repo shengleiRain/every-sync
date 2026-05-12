@@ -42,6 +42,8 @@ providers:
       endpoint: "https://dav.example.com"
       username: "user"
       password: "pass"
+      timeout: "0"             # optional: 0/empty = no total request timeout; use e.g. "30m" if desired
+      auth_mode: "basic"       # optional: basic avoids upload buffering; use "auto" for digest/passport servers
 
 # Sync pairs
 pairs:

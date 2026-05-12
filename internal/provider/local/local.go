@@ -126,7 +126,7 @@ func (l *LocalProvider) GetFileRange(_ context.Context, path string, offset, len
 	}{Reader: io.LimitReader(f, length), Closer: f}, meta, nil
 }
 
-func (l *LocalProvider) PutFile(_ context.Context, path string, reader io.Reader, _ *provider.FileMeta) error {
+func (l *LocalProvider) PutFile(_ context.Context, path string, reader io.Reader, meta *provider.FileMeta) error {
 	fullPath := l.resolve(path)
 
 	dir := filepath.Dir(fullPath)
@@ -138,16 +138,24 @@ func (l *LocalProvider) PutFile(_ context.Context, path string, reader io.Reader
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
 
 	if _, err := io.Copy(f, reader); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("write file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close file: %w", err)
+	}
+	if meta != nil && !meta.ModTime.IsZero() {
+		if err := os.Chtimes(fullPath, meta.ModTime, meta.ModTime); err != nil {
+			return fmt.Errorf("set file time: %w", err)
+		}
 	}
 
 	return nil
 }
 
-func (l *LocalProvider) PutFileResume(_ context.Context, path string, reader io.Reader, _ *provider.FileMeta, offset int64) error {
+func (l *LocalProvider) PutFileResume(_ context.Context, path string, reader io.Reader, meta *provider.FileMeta, offset int64) error {
 	fullPath := l.resolve(path)
 
 	dir := filepath.Dir(fullPath)
@@ -171,6 +179,11 @@ func (l *LocalProvider) PutFileResume(_ context.Context, path string, reader io.
 	}
 	if _, err := io.Copy(f, reader); err != nil {
 		return fmt.Errorf("write resumable file: %w", err)
+	}
+	if meta != nil && !meta.ModTime.IsZero() {
+		if err := os.Chtimes(fullPath, meta.ModTime, meta.ModTime); err != nil {
+			return fmt.Errorf("set resumable file time: %w", err)
+		}
 	}
 
 	return nil

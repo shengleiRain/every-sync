@@ -347,6 +347,7 @@ func syncPairRuntimeEqual(a, b *store.SyncPair) bool {
 		a.ConflictStrategy == b.ConflictStrategy &&
 		a.SelectedFolders == b.SelectedFolders
 }
+
 // ListPairFiles returns a one-level-deep file listing for the given pair and directory path.
 // The side parameter determines which provider to query ("local" or "remote").
 // Each entry includes sync state from the database and selected status for directories.
@@ -790,7 +791,7 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 		return nil
 	}
 
-	if err := e.indexCleanFiles(pair, localFiles, remoteFiles, dbEntries, taskPaths, dir); err != nil {
+	if err := e.indexCleanFiles(ctx, pair, localFiles, remoteFiles, dbEntries, taskPaths, dir); err != nil {
 		return err
 	}
 
@@ -818,8 +819,7 @@ func (e *Engine) scanRecursive(ctx context.Context, p provider.Provider, rootPat
 
 		entries, err := p.ListDir(ctx, current)
 		if err != nil {
-			logger.L.Debug().Err(err).Str("path", current).Msg("skip directory")
-			continue
+			return nil, fmt.Errorf("list directory %s: %w", current, err)
 		}
 
 		for _, entry := range entries {
@@ -885,9 +885,9 @@ func (e *Engine) scanRemote(ctx context.Context, remote provider.Provider, pair 
 	result := make([]*provider.FileMeta, 0, len(dbEntries))
 	for _, entry := range dbEntries {
 		meta := &provider.FileMeta{
-			Path:    entry.Path,
-			IsDir:   entry.IsDir,
-			Size:    entry.RemoteSize,
+			Path:  entry.Path,
+			IsDir: entry.IsDir,
+			Size:  entry.RemoteSize,
 		}
 		if entry.RemoteMTime != nil {
 			meta.ModTime = *entry.RemoteMTime
@@ -1243,11 +1243,11 @@ func generateDirBothTasks(pair *store.SyncPair, key string, localMeta, remoteMet
 
 func newDirTask(taskType TaskType, pairID int64, key, target string) SyncTask {
 	return SyncTask{
-		Type:         taskType,
-		PairID:       pairID,
-		Path:         key,
-		Priority:     0, // Lower priority so file tasks run first
-		Target: target,
+		Type:     taskType,
+		PairID:   pairID,
+		Path:     key,
+		Priority: 0, // Lower priority so file tasks run first
+		Target:   target,
 	}
 }
 
@@ -1262,11 +1262,11 @@ func newTask(taskType TaskType, pairID int64, key string) SyncTask {
 
 func newDeleteTask(pairID int64, key, target string) SyncTask {
 	return SyncTask{
-		Type:         TaskDelete,
-		PairID:       pairID,
-		Path:         key,
-		Priority:     1,
-		Target: target,
+		Type:     TaskDelete,
+		PairID:   pairID,
+		Path:     key,
+		Priority: 1,
+		Target:   target,
 	}
 }
 
@@ -1556,7 +1556,7 @@ func matchesAnyPattern(filePath string, patterns []string) bool {
 	return false
 }
 
-func (e *Engine) indexCleanFiles(pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, taskPaths map[string]bool, dir Direction) error {
+func (e *Engine) indexCleanFiles(ctx context.Context, pair *store.SyncPair, localFiles, remoteFiles []*provider.FileMeta, dbEntries []*store.FileEntry, taskPaths map[string]bool, dir Direction) error {
 	if dir != DirectionUp && dir != DirectionDown && dir != DirectionBoth {
 		return nil
 	}
@@ -1579,18 +1579,37 @@ func (e *Engine) indexCleanFiles(pair *store.SyncPair, localFiles, remoteFiles [
 			continue
 		}
 		remoteMeta := remoteMap[key]
-		if !sameSnapshot(localMeta, remoteMeta) {
+		if remoteMeta == nil {
 			continue
 		}
 		if isSynced(entryMap[key]) {
 			continue
 		}
 
+		localHash := ""
+		remoteHash := ""
+		if !sameSnapshot(localMeta, remoteMeta) {
+			if localMeta.IsDir || remoteMeta.IsDir || localMeta.Size != remoteMeta.Size {
+				continue
+			}
+			var err error
+			localHash, err = e.computeHashViaProvider(ctx, e.locals[pair.ID], key)
+			if err != nil {
+				continue
+			}
+			remoteHash, err = e.computeHashViaProvider(ctx, e.remotes[pair.ID], key)
+			if err != nil || localHash != remoteHash {
+				continue
+			}
+		}
+
 		// Compute hashes for the file so subsequent scans can use them for
-		// two-stage detection. Use local provider for both sides since the
-		// content is identical at this point.
-		localHash, _ := e.computeHashViaProvider(context.Background(), e.locals[pair.ID], key)
-		remoteHash := localHash // identical content
+		// two-stage detection. If size and mtime already matched, the task
+		// generator has already accepted this as a clean snapshot.
+		if !localMeta.IsDir && localHash == "" {
+			localHash, _ = e.computeHashViaProvider(ctx, e.locals[pair.ID], key)
+			remoteHash = localHash
+		}
 
 		if err := e.store.UpsertFileEntry(&store.FileEntry{
 			Path:        key,

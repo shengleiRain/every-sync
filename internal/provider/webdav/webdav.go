@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"strings"
@@ -35,10 +36,15 @@ func (w *WebDAVProvider) Init(_ context.Context, config provider.Config) error {
 	password := config.Params["password"]
 	w.prefix = strings.TrimSuffix(config.Params["prefix"], "/")
 
-	client := gowebdav.NewClient(endpoint, username, password)
+	client := newClient(endpoint, username, password, config.Params["auth_mode"])
 
-	// Set reasonable timeouts
-	client.SetTimeout(30 * time.Second)
+	if timeoutValue := strings.TrimSpace(config.Params["timeout"]); timeoutValue != "" {
+		timeout, err := time.ParseDuration(timeoutValue)
+		if err != nil {
+			return fmt.Errorf("webdav provider: invalid timeout %q: %w", timeoutValue, err)
+		}
+		client.SetTimeout(timeout)
+	}
 
 	// Verify connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -108,20 +114,83 @@ func (w *WebDAVProvider) GetFileRange(_ context.Context, remotePath string, offs
 	return reader, meta, nil
 }
 
-func (w *WebDAVProvider) PutFile(_ context.Context, remotePath string, reader io.Reader, _ *provider.FileMeta) error {
+func (w *WebDAVProvider) PutFile(_ context.Context, remotePath string, reader io.Reader, meta *provider.FileMeta) error {
 	fullPath := w.resolve(remotePath)
 
 	// Ensure parent directory exists
 	dir := path.Dir(fullPath)
-	if err := w.client.MkdirAll(dir, 0755); err != nil {
-		return w.mapError(err)
+	if dir != "/" && dir != "." {
+		if err := w.client.MkdirAll(dir, 0755); err != nil {
+			return w.mapError(err)
+		}
 	}
 
-	if err := w.client.WriteStream(fullPath, reader, 0644); err != nil {
-		return fmt.Errorf("webdav upload: %w", err)
+	var err error
+	if meta != nil && meta.Size >= 0 {
+		err = w.client.WriteStreamWithLength(fullPath, reader, meta.Size, 0644)
+	} else {
+		err = w.client.WriteStream(fullPath, reader, 0644)
+	}
+	if err != nil {
+		mapped := w.mapError(err)
+		if errorsIsProvider(mapped) {
+			return mapped
+		}
+		return fmt.Errorf("webdav upload: %w", mapped)
 	}
 
 	return nil
+}
+
+func newClient(endpoint, username, password, authMode string) *gowebdav.Client {
+	if strings.EqualFold(strings.TrimSpace(authMode), "auto") || (username == "" && password == "") {
+		return gowebdav.NewClient(endpoint, username, password)
+	}
+	return gowebdav.NewAuthClient(endpoint, basicAuthorizer{username: username, password: password})
+}
+
+type basicAuthorizer struct {
+	username string
+	password string
+}
+
+func (a basicAuthorizer) NewAuthenticator(body io.Reader) (gowebdav.Authenticator, io.Reader) {
+	return basicAuthenticator{username: a.username, password: a.password}, body
+}
+
+func (a basicAuthorizer) AddAuthenticator(string, gowebdav.AuthFactory) {}
+
+type basicAuthenticator struct {
+	username string
+	password string
+}
+
+func (a basicAuthenticator) Authorize(_ *http.Client, req *http.Request, _ string) error {
+	req.SetBasicAuth(a.username, a.password)
+	return nil
+}
+
+func (a basicAuthenticator) Verify(_ *http.Client, resp *http.Response, path string) (bool, error) {
+	if resp.StatusCode == http.StatusUnauthorized {
+		return false, gowebdav.NewPathError("Authorize", path, resp.StatusCode)
+	}
+	return false, nil
+}
+
+func (a basicAuthenticator) Clone() gowebdav.Authenticator {
+	return a
+}
+
+func (a basicAuthenticator) Close() error {
+	return nil
+}
+
+func errorsIsProvider(err error) bool {
+	return err == provider.ErrNotFound ||
+		err == provider.ErrAlreadyExists ||
+		err == provider.ErrPermission ||
+		err == provider.ErrNetwork ||
+		err == provider.ErrAuthentication
 }
 
 func (w *WebDAVProvider) DeleteFile(_ context.Context, remotePath string) error {
@@ -292,9 +361,11 @@ func (w *WebDAVProvider) mapError(err error) error {
 		}
 	}
 
-	if strings.Contains(err.Error(), "connection refused") ||
-		strings.Contains(err.Error(), "timeout") ||
-		strings.Contains(err.Error(), "no such host") {
+	errText := strings.ToLower(err.Error())
+	if strings.Contains(errText, "connection refused") ||
+		strings.Contains(errText, "timeout") ||
+		strings.Contains(errText, "deadline exceeded") ||
+		strings.Contains(errText, "no such host") {
 		return provider.ErrNetwork
 	}
 

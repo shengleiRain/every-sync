@@ -168,9 +168,11 @@ func GenerateExample(path string) error {
 			Name: "webdav",
 			Type: "webdav",
 			Params: map[string]string{
-				"endpoint": "https://dav.example.com",
-				"username": "user",
-				"password": "pass",
+				"endpoint":  "https://dav.example.com",
+				"username":  "user",
+				"password":  "pass",
+				"timeout":   "0",
+				"auth_mode": "basic",
 			},
 		},
 	}

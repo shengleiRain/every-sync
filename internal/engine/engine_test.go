@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,15 @@ func assertMissing(t *testing.T, root, rel string) {
 	}
 }
 
+type listFailProvider struct {
+	provider.Provider
+	err error
+}
+
+func (p *listFailProvider) ListDir(context.Context, string) ([]*provider.FileMeta, error) {
+	return nil, p.err
+}
+
 func waitForFileContent(t *testing.T, root, rel, want string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -134,6 +144,57 @@ func TestEngineBidirectionalSecondSyncDoesNotDeleteSyncedFile(t *testing.T) {
 	runPairSync(t, eng, pair.ID, "")
 	assertFileContent(t, localDir, "a.txt", "keep-me")
 	assertFileContent(t, remoteDir, "a.txt", "keep-me")
+}
+
+func TestScanRecursiveReturnsErrorWhenDirectoryListFails(t *testing.T) {
+	eng := &Engine{}
+	_, err := eng.scanRecursive(context.Background(), &listFailProvider{err: errors.New("list failed")}, "/")
+	if err == nil {
+		t.Fatal("scanRecursive returned nil error for failed directory listing")
+	}
+}
+
+func TestEngineBidirectionalIndexesIdenticalContentWithDifferentModTimes(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "same.txt", "same-content")
+	writeTestFile(t, remoteDir, "same.txt", "same-content")
+
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(localDir, "same.txt"), now, now.Add(-10*time.Minute)); err != nil {
+		t.Fatalf("chtimes local: %v", err)
+	}
+	if err := os.Chtimes(filepath.Join(remoteDir, "same.txt"), now, now); err != nil {
+		t.Fatalf("chtimes remote: %v", err)
+	}
+
+	pair := &store.SyncPair{
+		Name:       "same-content-different-mtime",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+
+	entry, err := s.GetFileEntry(pair.ID, "/same.txt")
+	if err != nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("identical file with different mtimes was not indexed")
+	}
+	if entry.SyncState != "synced" {
+		t.Fatalf("sync state = %q, want synced", entry.SyncState)
+	}
 }
 
 func TestEngineOneWayUploadAndDownload(t *testing.T) {
@@ -637,13 +698,13 @@ func TestNormalMode_MirrorAliasBackwardCompat(t *testing.T) {
 
 	// Use "mirror" mode - should still work as alias for "normal"
 	pair := &store.SyncPair{
-		Name:      "mirror-compat",
-		LocalPath: localDir,
+		Name:       "mirror-compat",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -816,13 +877,13 @@ func TestDirectorySync_RemoteHasDir_LocalDoesNot_CreatedLocally(t *testing.T) {
 	writeTestFile(t, remoteDir, "docs/readme.txt", "hello")
 
 	pair := &store.SyncPair{
-		Name:      "dir-down",
-		LocalPath: localDir,
+		Name:       "dir-down",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "down",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "down",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -844,13 +905,13 @@ func TestDirectorySync_LocalHasDir_RemoteDoesNot_CreatedRemotely(t *testing.T) {
 	writeTestFile(t, localDir, "docs/readme.txt", "hello")
 
 	pair := &store.SyncPair{
-		Name:      "dir-up",
-		LocalPath: localDir,
+		Name:       "dir-up",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -873,13 +934,13 @@ func TestDirectorySync_RemoteDeletesDir_LocalDirDeleted(t *testing.T) {
 	writeTestFile(t, remoteDir, "docs/readme.txt", "hello")
 
 	pair := &store.SyncPair{
-		Name:      "dir-delete-down",
-		LocalPath: localDir,
+		Name:       "dir-delete-down",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "both",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -914,13 +975,13 @@ func TestDirectorySync_LocalDeletesDir_RemoteDirDeleted(t *testing.T) {
 	writeTestFile(t, remoteDir, "docs/readme.txt", "hello")
 
 	pair := &store.SyncPair{
-		Name:      "dir-delete-up",
-		LocalPath: localDir,
+		Name:       "dir-delete-up",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "both",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -956,13 +1017,13 @@ func TestDirectorySync_EmptyDirPreserved(t *testing.T) {
 	}
 
 	pair := &store.SyncPair{
-		Name:      "dir-empty",
-		LocalPath: localDir,
+		Name:       "dir-empty",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -984,13 +1045,13 @@ func TestDirectorySync_DirEntryRecordedInDB(t *testing.T) {
 	writeTestFile(t, localDir, "docs/readme.txt", "content")
 
 	pair := &store.SyncPair{
-		Name:      "dir-db",
-		LocalPath: localDir,
+		Name:       "dir-db",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1024,13 +1085,13 @@ func TestDirectorySync_NestedDirsCreatedRecursively(t *testing.T) {
 	writeTestFile(t, localDir, "a/b/c/deep.txt", "deep-content")
 
 	pair := &store.SyncPair{
-		Name:      "dir-nested",
-		LocalPath: localDir,
+		Name:       "dir-nested",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1056,13 +1117,13 @@ func TestDirectorySync_DirWithMultipleFiles_Up(t *testing.T) {
 	writeTestFile(t, localDir, "project/go.mod", "module test")
 
 	pair := &store.SyncPair{
-		Name:      "dir-multi-up",
-		LocalPath: localDir,
+		Name:       "dir-multi-up",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1089,13 +1150,13 @@ func TestDirectorySync_DirDeletionCleansUpChildDBEntries(t *testing.T) {
 	writeTestFile(t, remoteDir, "project/util.go", "package main")
 
 	pair := &store.SyncPair{
-		Name:      "dir-cleanup-db",
-		LocalPath: localDir,
+		Name:       "dir-cleanup-db",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "both",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1141,13 +1202,13 @@ func TestDirectorySync_SecondSyncIdempotent(t *testing.T) {
 	writeTestFile(t, localDir, "docs/note.txt", "note")
 
 	pair := &store.SyncPair{
-		Name:      "dir-idempotent",
-		LocalPath: localDir,
+		Name:       "dir-idempotent",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1215,13 +1276,13 @@ func TestVirtualMode_ForcesDirectionBoth(t *testing.T) {
 	writeTestFile(t, remoteDir, "data.txt", "remote-data")
 
 	pair := &store.SyncPair{
-		Name:      "virtual-force-both",
-		LocalPath: localDir,
+		Name:       "virtual-force-both",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "virtual",
-		Direction: "up",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "virtual",
+		Direction:  "up",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1252,13 +1313,13 @@ func TestVirtualMode_LocalUploadWorks(t *testing.T) {
 	writeTestFile(t, remoteDir, "remote.txt", "remote-content")
 
 	pair := &store.SyncPair{
-		Name:      "virtual-upload",
-		LocalPath: localDir,
+		Name:       "virtual-upload",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "virtual",
-		Direction: "down", // Even with "down" direction, virtual mode forces "both"
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "virtual",
+		Direction:  "down", // Even with "down" direction, virtual mode forces "both"
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1291,13 +1352,13 @@ func TestVirtualMode_RemoteChangeReVirtualizes(t *testing.T) {
 	writeTestFile(t, remoteDir, "shared.txt", "original")
 
 	pair := &store.SyncPair{
-		Name:      "virtual-revirt",
-		LocalPath: localDir,
+		Name:       "virtual-revirt",
+		LocalPath:  localDir,
 		RemotePath: remoteDir,
-		Provider:  "local",
-		Mode:      "mirror",
-		Direction: "both",
-		Enabled:   true,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "both",
+		Enabled:    true,
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
 		t.Fatalf("create pair: %v", err)
@@ -1413,13 +1474,13 @@ func TestVirtualMode_BothChanged_UploadWinsOverConflict(t *testing.T) {
 	writeTestFile(t, remoteDir, "both.txt", "original")
 
 	pair := &store.SyncPair{
-		Name:            "virtual-both-change",
-		LocalPath:       localDir,
-		RemotePath:      remoteDir,
-		Provider:        "local",
-		Mode:            "mirror",
-		Direction:       "both",
-		Enabled:         true,
+		Name:             "virtual-both-change",
+		LocalPath:        localDir,
+		RemotePath:       remoteDir,
+		Provider:         "local",
+		Mode:             "mirror",
+		Direction:        "both",
+		Enabled:          true,
 		ConflictStrategy: "latest_wins",
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
@@ -1782,13 +1843,13 @@ func TestConflict_ModifyVsDelete(t *testing.T) {
 	writeTestFile(t, remoteDir, "file.txt", "original")
 
 	pair := &store.SyncPair{
-		Name:            "modify-delete",
-		LocalPath:       localDir,
-		RemotePath:      remoteDir,
-		Provider:        "local",
-		Mode:            "mirror",
-		Direction:       "both",
-		Enabled:         true,
+		Name:             "modify-delete",
+		LocalPath:        localDir,
+		RemotePath:       remoteDir,
+		Provider:         "local",
+		Mode:             "mirror",
+		Direction:        "both",
+		Enabled:          true,
 		ConflictStrategy: "manual",
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
@@ -1837,13 +1898,13 @@ func TestConflict_DeleteVsModify(t *testing.T) {
 	writeTestFile(t, remoteDir, "file.txt", "original")
 
 	pair := &store.SyncPair{
-		Name:            "delete-modify",
-		LocalPath:       localDir,
-		RemotePath:      remoteDir,
-		Provider:        "local",
-		Mode:            "mirror",
-		Direction:       "both",
-		Enabled:         true,
+		Name:             "delete-modify",
+		LocalPath:        localDir,
+		RemotePath:       remoteDir,
+		Provider:         "local",
+		Mode:             "mirror",
+		Direction:        "both",
+		Enabled:          true,
 		ConflictStrategy: "manual",
 	}
 	if err := s.CreateSyncPair(pair); err != nil {
@@ -2009,13 +2070,13 @@ func TestConflict_FirstSyncDifferentContent(t *testing.T) {
 	}
 
 	pair := &store.SyncPair{
-		Name:            "first-sync-diff",
-		LocalPath:       localDir,
-		RemotePath:      remoteDir,
-		Provider:        "local",
-		Mode:            "mirror",
-		Direction:       "both",
-		Enabled:         true,
+		Name:             "first-sync-diff",
+		LocalPath:        localDir,
+		RemotePath:       remoteDir,
+		Provider:         "local",
+		Mode:             "mirror",
+		Direction:        "both",
+		Enabled:          true,
 		ConflictStrategy: "manual",
 	}
 	if err := s.CreateSyncPair(pair); err != nil {

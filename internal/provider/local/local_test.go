@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rain/every-sync/internal/provider"
 )
@@ -85,6 +86,28 @@ func TestLocalProvider_PutAndGetFile(t *testing.T) {
 	}
 	if meta.Size != int64(len(content)) {
 		t.Fatalf("size mismatch: got %d, want %d", meta.Size, len(content))
+	}
+}
+
+func TestLocalProvider_PutFilePreservesProvidedModTime(t *testing.T) {
+	p, _ := setupTestProvider(t)
+	ctx := context.Background()
+	wantModTime := time.Date(2026, 5, 12, 8, 30, 0, 0, time.UTC)
+
+	err := p.PutFile(ctx, "/mtime.txt", strings.NewReader("content"), &provider.FileMeta{
+		ModTime: wantModTime,
+		Size:    int64(len("content")),
+	})
+	if err != nil {
+		t.Fatalf("PutFile: %v", err)
+	}
+
+	meta, err := p.Stat(ctx, "/mtime.txt")
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if !meta.ModTime.Equal(wantModTime) {
+		t.Fatalf("modtime = %s, want %s", meta.ModTime, wantModTime)
 	}
 }
 
