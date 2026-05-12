@@ -926,6 +926,7 @@ func (e *Engine) scanRemote(ctx context.Context, remote provider.Provider, pair 
 func shouldSkipPath(filePath string) bool {
 	base := path.Base(path.Clean(filePath))
 	return base == "Identifier" ||
+		strings.Contains(base, ":Zone.Identifier") ||
 		strings.HasPrefix(base, "Zone.Identifier") ||
 		strings.HasSuffix(base, partialSuffix)
 }
