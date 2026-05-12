@@ -157,3 +157,18 @@ export const SunIcon: React.FC<IconProps> = ({ size = 20, color = 'currentColor'
     <path d="M10 2V4.5M10 15.5V18M2 10H4.5M15.5 10H18M4.57 4.57L6.34 6.34M13.66 13.66L15.43 15.43M15.43 4.57L13.66 6.34M6.34 13.66L4.57 15.43" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
+
+export const GlobeIcon: React.FC<IconProps> = ({ size = 20, color = 'currentColor', className }) => (
+  <svg width={size} height={size} viewBox="0 0 20 20" fill="none" className={className}>
+    <circle cx="10" cy="10" r="7.5" stroke={color} strokeWidth="1.5" />
+    <path d="M2.5 10H17.5" stroke={color} strokeWidth="1.5" />
+    <path d="M10 2.5C12.5 4.5 13.5 7 13.5 10C13.5 13 12.5 15.5 10 17.5" stroke={color} strokeWidth="1.5" />
+    <path d="M10 2.5C7.5 4.5 6.5 7 6.5 10C6.5 13 7.5 15.5 10 17.5" stroke={color} strokeWidth="1.5" />
+  </svg>
+);
+
+export const MenuIcon: React.FC<IconProps> = ({ size = 20, color = 'currentColor', className }) => (
+  <svg width={size} height={size} viewBox="0 0 20 20" fill="none" className={className}>
+    <path d="M3 5H17M3 10H17M3 15H17" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);

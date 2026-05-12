@@ -4,6 +4,7 @@ import type { Provider } from '../api/client';
 import { GearIcon, CheckIcon, CloseIcon } from '../components/Icons';
 import { Modal } from '../components/Modal';
 import { showToast } from '../components/Toast';
+import { useI18n } from '../i18n';
 
 interface ProviderForm {
   name: string;
@@ -22,6 +23,7 @@ interface ProviderWithParams extends Provider {
 }
 
 export const Providers: React.FC = () => {
+  const { t } = useI18n();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,7 +36,7 @@ export const Providers: React.FC = () => {
     try {
       setProviders(await listProviders());
     } catch {
-      showToast('Failed to load providers', 'error');
+      showToast(t('providers.loadFailed'), 'error');
     } finally {
       setLoading(false);
     }
@@ -65,28 +67,28 @@ export const Providers: React.FC = () => {
       const params = JSON.parse(form.params || '{}');
       if (editingId) {
         await updateProvider(editingId, { name: form.name, type: form.type, params });
-        showToast('Provider updated', 'success');
+        showToast(t('providers.providerUpdated'), 'success');
       } else {
         await createProvider({ name: form.name, type: form.type, params });
-        showToast('Provider created', 'success');
+        showToast(t('providers.providerCreated'), 'success');
       }
       setModalOpen(false);
       await load();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Operation failed', 'error');
+      showToast(e instanceof Error ? e.message : t('pairs.operationFailed'), 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this provider?')) return;
+    if (!confirm(t('providers.confirmDelete'))) return;
     try {
       await deleteProvider(id);
-      showToast('Provider deleted', 'success');
+      showToast(t('providers.providerDeleted'), 'success');
       await load();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Delete failed', 'error');
+      showToast(e instanceof Error ? e.message : t('pairs.operationFailed'), 'error');
     }
   };
 
@@ -106,19 +108,19 @@ export const Providers: React.FC = () => {
     <div style={{ padding: 'var(--space-6)', maxWidth: '800px', margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-6)' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>Providers</h1>
+          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('providers.title')}</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-            Configure cloud storage providers
+            {t('providers.subtitle')}
           </p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}>+ New Provider</button>
+        <button className="btn btn-primary" onClick={openCreate}>{t('providers.newProvider')}</button>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-secondary)' }}>Loading...</div>
+        <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
       ) : providers.length === 0 ? (
         <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-          No providers configured. Click "+ New Provider" to add one.
+          {t('providers.noProviders')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -130,34 +132,34 @@ export const Providers: React.FC = () => {
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{p.type}</div>
               </div>
               {p.configured ? (
-                <span className="badge badge-green"><CheckIcon size={12} color="var(--accent-green)" /> Configured</span>
+                <span className="badge badge-green"><CheckIcon size={12} color="var(--accent-green)" /> {t('providers.configured')}</span>
               ) : (
-                <span className="badge badge-amber"><CloseIcon size={12} color="var(--accent-amber)" /> Not configured</span>
+                <span className="badge badge-amber"><CloseIcon size={12} color="var(--accent-amber)" /> {t('providers.notConfigured')}</span>
               )}
               <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                <button className="btn btn-sm" onClick={() => openEdit(p as ProviderWithParams)}>Edit</button>
-                <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(p.id)}>Delete</button>
+                <button className="btn btn-sm" onClick={() => openEdit(p as ProviderWithParams)}>{t('common.edit')}</button>
+                <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(p.id)}>{t('common.delete')}</button>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Edit Provider' : 'New Provider'}>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? t('providers.editProvider') : t('providers.newProviderTitle')}>
         <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
           <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
-            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>Name</label>
+            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('common.name')}</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="my-webdav" required style={inputStyle} />
           </div>
           <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
-            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>Type</label>
+            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('providers.type')}</label>
             <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} style={inputStyle}>
               <option value="webdav">WebDAV</option>
               <option value="local">Local</option>
             </select>
           </div>
           <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 'var(--space-1)' }}>
-            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>Parameters (JSON)</label>
+            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('providers.params')}</label>
             <textarea
               value={form.params}
               onChange={(e) => setForm((f) => ({ ...f, params: e.target.value }))}
@@ -167,9 +169,9 @@ export const Providers: React.FC = () => {
           </div>
           <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
             <button className="btn btn-primary" type="submit" disabled={submitting}>
-              {submitting ? 'Saving...' : editingId ? 'Save Changes' : 'Create Provider'}
+              {submitting ? t('common.saving') : editingId ? t('providers.saveChanges') : t('providers.createProvider')}
             </button>
-            <button className="btn" type="button" onClick={() => setModalOpen(false)}>Cancel</button>
+            <button className="btn" type="button" onClick={() => setModalOpen(false)}>{t('common.cancel')}</button>
           </div>
         </form>
       </Modal>

@@ -3,8 +3,10 @@ import { listPairs, listVersions, restoreVersion } from '../api/client';
 import type { SyncPair, VersionEntry } from '../api/client';
 import { ClockIcon } from '../components/Icons';
 import { showToast } from '../components/Toast';
+import { useI18n } from '../i18n';
 
 export const Versions: React.FC = () => {
+  const { t } = useI18n();
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [selectedPair, setSelectedPair] = useState('');
   const [searchPath, setSearchPath] = useState('');
@@ -25,7 +27,7 @@ export const Versions: React.FC = () => {
       const data = await listVersions(selectedPair, searchPath);
       setVersions(data);
     } catch {
-      showToast('Failed to load versions', 'error');
+      showToast(t('versions.loadFailed'), 'error');
       setVersions([]);
     } finally {
       setLoading(false);
@@ -35,9 +37,9 @@ export const Versions: React.FC = () => {
   const handleRestore = async (pairId: string, versionId: string) => {
     try {
       await restoreVersion(pairId, versionId);
-      showToast('Version restored', 'success');
+      showToast(t('versions.versionRestored'), 'success');
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Restore failed', 'error');
+      showToast(e instanceof Error ? e.message : t('versions.restoreFailed'), 'error');
     }
   };
 
@@ -63,50 +65,50 @@ export const Versions: React.FC = () => {
   return (
     <div style={{ padding: 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
       <div style={{ marginBottom: 'var(--space-6)' }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>Version History</h1>
+        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('versions.title')}</h1>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-          View and restore previous file versions
+          {t('versions.subtitle')}
         </p>
       </div>
 
       <div className="card" style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)' }}>
         <form onSubmit={handleSearch} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 'var(--space-3)', alignItems: 'end' }}>
           <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
-            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>Sync Pair</label>
+            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('versions.syncPair')}</label>
             <select value={selectedPair} onChange={(e) => setSelectedPair(e.target.value)} style={inputStyle}>
-              <option value="">Select pair</option>
+              <option value="">{t('versions.selectPair')}</option>
               {pairs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
-            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>Path</label>
+            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('versions.path')}</label>
             <input value={searchPath} onChange={(e) => setSearchPath(e.target.value)} placeholder="/path/to/file" style={inputStyle} />
           </div>
-          <button className="btn btn-primary" type="submit">Search</button>
+          <button className="btn btn-primary" type="submit">{t('versions.search')}</button>
         </form>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--text-secondary)' }}>Loading...</div>
+        <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
       ) : !searched ? (
         <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>
           <ClockIcon size={32} color="var(--text-tertiary)" />
-          <div style={{ marginTop: 'var(--space-3)' }}>Select a sync pair and path to view version history.</div>
+          <div style={{ marginTop: 'var(--space-3)' }}>{t('versions.selectHint')}</div>
         </div>
       ) : versions.length === 0 ? (
-        <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>No version records found.</div>
+        <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('versions.noRecords')}</div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
             <thead>
               <tr>
-                <th style={thStyle}>Sync Pair</th>
-                <th style={thStyle}>Path</th>
-                <th style={thStyle}>Source</th>
-                <th style={thStyle}>Size</th>
-                <th style={thStyle}>File Time</th>
-                <th style={thStyle}>Recorded</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
+                <th style={thStyle}>{t('versions.syncPair')}</th>
+                <th style={thStyle}>{t('versions.path')}</th>
+                <th style={thStyle}>{t('versions.source')}</th>
+                <th style={thStyle}>{t('versions.size')}</th>
+                <th style={thStyle}>{t('versions.fileTime')}</th>
+                <th style={thStyle}>{t('versions.recorded')}</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -121,7 +123,7 @@ export const Versions: React.FC = () => {
                     <td style={tdStyle}>{new Date(v.modified).toLocaleString()}</td>
                     <td style={tdStyle}>{new Date(v.modified).toLocaleString()}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <button className="btn btn-sm" onClick={() => handleRestore(v.pair_id, v.id)}>Restore</button>
+                      <button className="btn btn-sm" onClick={() => handleRestore(v.pair_id, v.id)}>{t('versions.restore')}</button>
                     </td>
                   </tr>
                 );

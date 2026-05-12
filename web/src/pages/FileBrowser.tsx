@@ -14,6 +14,7 @@ import {
   WarningIcon,
   CloseIcon,
 } from '../components/Icons';
+import { useI18n } from '../i18n';
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '—';
@@ -23,14 +24,14 @@ function formatSize(bytes: number): string {
   return val.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, t: (key: string, params?: Record<string, string | number>) => string): string {
   try {
     const d = new Date(iso);
     const now = new Date();
     const diff = now.getTime() - d.getTime();
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+    if (diff < 60000) return t('time.justNow');
+    if (diff < 3600000) return t('time.minutesAgo', { n: Math.floor(diff / 60000) });
+    if (diff < 86400000) return t('time.hoursAgo', { n: Math.floor(diff / 3600000) });
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
     return iso;
@@ -45,6 +46,7 @@ interface ActionMenuState {
 }
 
 export const FileBrowser: React.FC = () => {
+  const { t } = useI18n();
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [selectedPairId, setSelectedPairId] = useState<string>('');
   const [side, setSide] = useState<FileSide>('local');
@@ -62,7 +64,6 @@ export const FileBrowser: React.FC = () => {
 
   const selectedPair = pairs.find((p) => p.id === selectedPairId);
 
-  // Load pairs on mount
   useEffect(() => {
     listPairs()
       .then((p) => {
@@ -76,7 +77,6 @@ export const FileBrowser: React.FC = () => {
       });
   }, []);
 
-  // Load files when pair or path changes
   useEffect(() => {
     if (!selectedPairId) return;
     setLoading(true);
@@ -87,7 +87,6 @@ export const FileBrowser: React.FC = () => {
       .finally(() => setLoading(false));
   }, [selectedPairId, currentPath, side]);
 
-  // Close action menu on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -123,7 +122,6 @@ export const FileBrowser: React.FC = () => {
     if (!selectedPairId || !actionMenu.entry) return;
     try {
       await materializeFile(selectedPairId, actionMenu.entry.path);
-      // Reload files
       const files = await listFiles(selectedPairId, currentPath, side);
       setEntries(files);
     } catch {
@@ -144,7 +142,6 @@ export const FileBrowser: React.FC = () => {
     setActionMenu({ visible: false, x: 0, y: 0, entry: null });
   }, [selectedPairId, currentPath, side, actionMenu.entry]);
 
-  // Sort: folders first, then files, alphabetical within each group
   const sorted = [...entries].sort((a, b) => {
     if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
     return a.name.localeCompare(b.name);
@@ -152,19 +149,17 @@ export const FileBrowser: React.FC = () => {
 
   return (
     <div style={{ padding: 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
       <div style={{ marginBottom: 'var(--space-4)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              File Browser
+              {t('files.title')}
             </h1>
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-              Browse and manage synced files
+              {t('files.subtitle')}
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            {/* Pair selector */}
             <select
               value={selectedPairId}
               onChange={(e) => {
@@ -183,7 +178,7 @@ export const FileBrowser: React.FC = () => {
                 minWidth: '200px',
               }}
             >
-              <option value="">Select sync pair...</option>
+              <option value="">{t('files.selectPair')}</option>
               {pairs.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({p.mode}, {p.direction})
@@ -191,25 +186,23 @@ export const FileBrowser: React.FC = () => {
               ))}
             </select>
 
-            {/* Side toggle */}
             <div className="tab-toggle">
               <button
                 className={`tab-toggle-btn ${side === 'local' ? 'active' : ''}`}
                 onClick={() => setSide('local')}
               >
-                Local
+                {t('files.local')}
               </button>
               <button
                 className={`tab-toggle-btn ${side === 'remote' ? 'active' : ''}`}
                 onClick={() => setSide('remote')}
               >
-                Remote
+                {t('files.remote')}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Pair info */}
         {selectedPair && (
           <div
             style={{
@@ -235,12 +228,10 @@ export const FileBrowser: React.FC = () => {
         )}
       </div>
 
-      {/* Breadcrumb */}
       {selectedPairId && (
         <Breadcrumb path={currentPath} onNavigate={handleNavigate} />
       )}
 
-      {/* File list */}
       <div
         className="card"
         style={{
@@ -252,7 +243,6 @@ export const FileBrowser: React.FC = () => {
           flexDirection: 'column',
         }}
       >
-        {/* Column headers */}
         <div
           style={{
             display: 'grid',
@@ -274,31 +264,29 @@ export const FileBrowser: React.FC = () => {
         >
           <span></span>
           <span></span>
-          <span>Name</span>
-          <span>Size</span>
-          <span>Modified</span>
+          <span>{t('files.name')}</span>
+          <span>{t('files.size')}</span>
+          <span>{t('files.modified')}</span>
           <span></span>
           <span></span>
         </div>
 
-        {/* Loading / Error / Empty states */}
         {!selectedPairId && (
-          <div style={emptyStyle}>Select a sync pair to browse files</div>
+          <div style={emptyStyle}>{t('files.selectToBrowse')}</div>
         )}
         {loading && (
           <div style={emptyStyle}>
             <SyncIcon size={20} color="var(--accent-blue)" spinning />
-            <span style={{ marginLeft: 'var(--space-2)' }}>Loading...</span>
+            <span style={{ marginLeft: 'var(--space-2)' }}>{t('common.loading')}</span>
           </div>
         )}
         {error && (
-          <div style={{ ...emptyStyle, color: 'var(--accent-red)' }}>Error: {error}</div>
+          <div style={{ ...emptyStyle, color: 'var(--accent-red)' }}>{t('files.error')}: {error}</div>
         )}
         {!loading && !error && selectedPairId && entries.length === 0 && (
-          <div style={emptyStyle}>This folder is empty</div>
+          <div style={emptyStyle}>{t('files.empty')}</div>
         )}
 
-        {/* File rows */}
         {!loading && !error && sorted.map((entry) => (
           <FileRow
             key={entry.path}
@@ -306,11 +294,11 @@ export const FileBrowser: React.FC = () => {
             side={side}
             onFolderClick={handleFolderClick}
             onActionClick={handleActionClick}
+            t={t}
           />
         ))}
       </div>
 
-      {/* Context menu */}
       {actionMenu.visible && actionMenu.entry && (
         <div
           ref={menuRef}
@@ -325,22 +313,22 @@ export const FileBrowser: React.FC = () => {
           {actionMenu.entry.status === 'virtual' && (
             <div className="dropdown-item" onClick={handleMaterialize}>
               <CloudIcon size={16} color="var(--accent-violet)" />
-              Materialize
+              {t('files.materialize')}
             </div>
           )}
           <div className="dropdown-item">
             <ClockIcon size={16} color="var(--text-secondary)" />
-            View Versions
+            {t('files.viewVersions')}
           </div>
           {actionMenu.entry.status === 'conflict' && (
             <div className="dropdown-item">
               <WarningIcon size={16} color="var(--accent-red)" />
-              Resolve Conflict
+              {t('files.resolveConflict')}
             </div>
           )}
           <div className="dropdown-item" onClick={handleExclude}>
             <CloseIcon size={16} color="var(--accent-red)" />
-            Exclude
+            {t('files.exclude')}
           </div>
         </div>
       )}
@@ -348,16 +336,15 @@ export const FileBrowser: React.FC = () => {
   );
 };
 
-// ---- FileRow ----
-
 interface FileRowProps {
   entry: FileEntry;
   side: FileSide;
   onFolderClick: (entry: FileEntry) => void;
   onActionClick: (e: React.MouseEvent, entry: FileEntry) => void;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionClick }) => {
+const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionClick, t }) => {
   const isFolder = entry.type === 'folder';
   const [hovered, setHovered] = useState(false);
 
@@ -379,7 +366,6 @@ const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionC
         fontSize: 'var(--text-sm)',
       }}
     >
-      {/* Checkbox (for folders in selective mode) */}
       <span style={{ display: 'flex', justifyContent: 'center' }}>
         {isFolder && (
           <input
@@ -392,14 +378,12 @@ const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionC
         )}
       </span>
 
-      {/* Icon */}
       {isFolder ? (
         <FolderIcon size={18} color="var(--accent-amber)" />
       ) : (
         <FileIcon size={18} color="var(--text-secondary)" />
       )}
 
-      {/* Name */}
       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', overflow: 'hidden' }}>
         <span style={{ fontWeight: isFolder ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {entry.name}
@@ -412,22 +396,18 @@ const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionC
         {isFolder && <ChevronRightIcon size={14} color="var(--text-tertiary)" />}
       </span>
 
-      {/* Size */}
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-        {isFolder ? `${entry.children_count ?? 0} items` : formatSize(entry.size)}
+        {isFolder ? `${entry.children_count ?? 0} ${t('files.items')}` : formatSize(entry.size)}
       </span>
 
-      {/* Modified */}
       <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-        {formatDate(entry.modified)}
+        {formatDate(entry.modified, t)}
       </span>
 
-      {/* Status icon */}
       <span style={{ display: 'flex', justifyContent: 'center' }}>
         <StatusIcon status={entry.status} size={16} />
       </span>
 
-      {/* Action menu trigger */}
       <span style={{ display: 'flex', justifyContent: 'center' }}>
         <button
           className="btn-icon btn-ghost"
@@ -447,8 +427,6 @@ const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionC
     </div>
   );
 };
-
-// ---- Styles ----
 
 const emptyStyle: React.CSSProperties = {
   display: 'flex',

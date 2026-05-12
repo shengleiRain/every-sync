@@ -10,6 +10,7 @@ import { Conflicts } from './pages/Conflicts';
 import { Versions } from './pages/Versions';
 import { Logs } from './pages/Logs';
 import { useWebSocket } from './hooks/useWebSocket';
+import { LanguageProvider } from './i18n';
 import type { WSEvent } from './api/client';
 
 const Layout: React.FC<{ conflictCount: number; wsConnected: boolean }> = ({ conflictCount, wsConnected }) => (
@@ -47,20 +48,22 @@ const App: React.FC = () => {
   const { connected: wsConnected } = useWebSocket({ onEvent: handleWSEvent });
 
   return (
-    <BrowserRouter>
-      <ToastContainer />
-      <Routes>
-        <Route element={<Layout conflictCount={conflictCount} wsConnected={wsConnected} />}>
-          <Route index element={<Dashboard />} />
-          <Route path="/files" element={<FileBrowser />} />
-          <Route path="/pairs" element={<SyncPairs />} />
-          <Route path="/providers" element={<Providers />} />
-          <Route path="/conflicts" element={<Conflicts />} />
-          <Route path="/versions" element={<Versions />} />
-          <Route path="/logs" element={<Logs />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <LanguageProvider>
+      <BrowserRouter>
+        <ToastContainer />
+        <Routes>
+          <Route element={<Layout conflictCount={conflictCount} wsConnected={wsConnected} />}>
+            <Route index element={<Dashboard />} />
+            <Route path="/files" element={<FileBrowser />} />
+            <Route path="/pairs" element={<SyncPairs />} />
+            <Route path="/providers" element={<Providers />} />
+            <Route path="/conflicts" element={<Conflicts />} />
+            <Route path="/versions" element={<Versions />} />
+            <Route path="/logs" element={<Logs />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </LanguageProvider>
   );
 };
 

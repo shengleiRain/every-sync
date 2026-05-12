@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { listLogs } from '../api/client';
 import type { LogEntry } from '../api/client';
 import { showToast } from '../components/Toast';
+import { useI18n } from '../i18n';
 
 const levelColors: Record<string, string> = {
   debug: 'var(--text-tertiary)',
@@ -18,6 +19,7 @@ const levelBg: Record<string, string> = {
 };
 
 export const Logs: React.FC = () => {
+  const { t } = useI18n();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [level, setLevel] = useState<string>('');
@@ -47,10 +49,9 @@ export const Logs: React.FC = () => {
 
   const handleClear = () => {
     setLogs([]);
-    showToast('Logs cleared', 'info');
+    showToast(t('logs.logsCleared'), 'info');
   };
 
-  // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     if (!paused && bodyRef.current) {
       const el = bodyRef.current;
@@ -78,29 +79,29 @@ export const Logs: React.FC = () => {
     <div style={{ padding: 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexShrink: 0, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>Logs</h1>
+          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('logs.title')}</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-            Sync engine activity log
+            {t('logs.subtitle')}
           </p>
         </div>
         <div style={{ flex: 1 }} />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Filter logs..."
+          placeholder={t('logs.filterPlaceholder')}
           style={inputStyle}
         />
         <select value={level} onChange={(e) => setLevel(e.target.value)} style={selectStyle}>
-          <option value="">All levels</option>
-          <option value="debug">Debug</option>
-          <option value="info">Info</option>
-          <option value="warn">Warning</option>
-          <option value="error">Error</option>
+          <option value="">{t('logs.allLevels')}</option>
+          <option value="debug">{t('logs.debug')}</option>
+          <option value="info">{t('logs.info')}</option>
+          <option value="warn">{t('logs.warning')}</option>
+          <option value="error">{t('logs.error')}</option>
         </select>
         <button className="btn btn-sm" onClick={() => setPaused(!paused)} style={paused ? { background: 'var(--accent-amber-bg)', borderColor: 'var(--accent-amber)' } : {}}>
-          {paused ? 'Resume' : 'Pause'}
+          {paused ? t('logs.resume') : t('logs.pause')}
         </button>
-        <button className="btn btn-sm" onClick={handleClear}>Clear</button>
+        <button className="btn btn-sm" onClick={handleClear}>{t('logs.clear')}</button>
       </div>
 
       <div
@@ -115,9 +116,9 @@ export const Logs: React.FC = () => {
         }}
       >
         {loading ? (
-          <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading...</div>
+          <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
         ) : filteredLogs.length === 0 ? (
-          <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-tertiary)' }}>No log entries found.</div>
+          <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('logs.noEntries')}</div>
         ) : (
           filteredLogs.map((log) => (
             <div
@@ -160,9 +161,9 @@ export const Logs: React.FC = () => {
       </div>
 
       <div style={{ display: 'flex', gap: 'var(--space-4)', padding: 'var(--space-2) 0', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-        <span>Total: <strong>{logs.length}</strong></span>
-        <span>Showing: <strong>{filteredLogs.length}</strong></span>
-        {paused && <span style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>PAUSED</span>}
+        <span>{t('logs.total')}: <strong>{logs.length}</strong></span>
+        <span>{t('logs.showing')}: <strong>{filteredLogs.length}</strong></span>
+        {paused && <span style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>{t('logs.paused')}</span>}
       </div>
     </div>
   );

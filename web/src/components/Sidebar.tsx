@@ -10,8 +10,10 @@ import {
   DocumentIcon,
   MoonIcon,
   SunIcon,
-  ChevronRightIcon,
+  GlobeIcon,
+  MenuIcon,
 } from './Icons';
+import { useI18n } from '../i18n';
 
 interface SidebarProps {
   conflictCount?: number;
@@ -20,22 +22,23 @@ interface SidebarProps {
 
 interface NavItem {
   to: string;
-  label: string;
+  labelKey: string;
   icon: React.FC<{ size?: number; color?: string; className?: string }>;
 }
 
 const navItems: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: GridIcon },
-  { to: '/files', label: 'File Browser', icon: FolderIcon },
-  { to: '/pairs', label: 'Sync Pairs', icon: LayersIcon },
-  { to: '/providers', label: 'Providers', icon: GearIcon },
-  { to: '/conflicts', label: 'Conflicts', icon: WarningIcon },
-  { to: '/versions', label: 'Versions', icon: ClockIcon },
-  { to: '/logs', label: 'Logs', icon: DocumentIcon },
+  { to: '/', labelKey: 'sidebar.dashboard', icon: GridIcon },
+  { to: '/files', labelKey: 'sidebar.files', icon: FolderIcon },
+  { to: '/pairs', labelKey: 'sidebar.pairs', icon: LayersIcon },
+  { to: '/providers', labelKey: 'sidebar.providers', icon: GearIcon },
+  { to: '/conflicts', labelKey: 'sidebar.conflicts', icon: WarningIcon },
+  { to: '/versions', labelKey: 'sidebar.versions', icon: ClockIcon },
+  { to: '/logs', labelKey: 'sidebar.logs', icon: DocumentIcon },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected = false }) => {
   const location = useLocation();
+  const { t, toggleLang } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -78,31 +81,43 @@ export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected
           zIndex: 210,
         }}
       >
-        {/* Logo area */}
+        {/* Header: hamburger toggle + brand */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-3)',
-            padding: 'var(--space-4) var(--space-4)',
+            padding: 'var(--space-2) var(--space-3)',
             borderBottom: '1px solid var(--border-muted)',
             minHeight: '52px',
           }}
         >
-          <div
+          <button
+            onClick={() => setCollapsed(!collapsed)}
             style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--accent-blue)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              width: '32px',
+              height: '32px',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
               flexShrink: 0,
+              transition: 'all var(--transition-fast)',
+            }}
+            title={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = 'var(--bg-surface-hover)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = 'transparent';
             }}
           >
-            <SyncMiniIcon />
-          </div>
+            <MenuIcon size={20} />
+          </button>
           {!collapsed && (
             <span
               style={{
@@ -165,13 +180,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected
                     (e.currentTarget as HTMLElement).style.background = 'transparent';
                   }
                 }}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? t(item.labelKey) : undefined}
               >
                 <item.icon
                   size={18}
                   color={isActive ? 'var(--accent-blue)' : 'var(--text-secondary)'}
                 />
-                {!collapsed && <span>{item.label}</span>}
+                {!collapsed && <span>{t(item.labelKey)}</span>}
                 {!collapsed && item.to === '/conflicts' && conflictCount > 0 && (
                   <span
                     style={{
@@ -217,7 +232,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected
                 background: wsConnected ? 'var(--accent-green)' : 'var(--accent-red)',
                 flexShrink: 0,
               }} />
-              {wsConnected ? 'Connected' : 'Disconnected'}
+              {wsConnected ? t('sidebar.connected') : t('sidebar.disconnected')}
             </div>
           )}
           <button
@@ -238,13 +253,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected
               width: '100%',
               justifyContent: collapsed ? 'center' : 'flex-start',
             }}
-            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={darkMode ? t('sidebar.lightMode') : t('sidebar.darkMode')}
           >
             {darkMode ? <SunIcon size={18} /> : <MoonIcon size={18} />}
-            {!collapsed && <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>}
+            {!collapsed && <span>{darkMode ? t('sidebar.lightMode') : t('sidebar.darkMode')}</span>}
           </button>
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={toggleLang}
             className="btn-ghost"
             style={{
               display: 'flex',
@@ -261,30 +276,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ conflictCount = 0, wsConnected
               width: '100%',
               justifyContent: collapsed ? 'center' : 'flex-start',
             }}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={t('sidebar.switchLang')}
           >
-            <ChevronRightIcon
-              size={18}
-              className={collapsed ? '' : undefined}
-            />
-            {!collapsed && <span>Collapse</span>}
+            <GlobeIcon size={18} />
+            {!collapsed && <span>{t('sidebar.switchLang')}</span>}
           </button>
         </div>
       </aside>
     </>
   );
 };
-
-/** Small sync icon for the logo */
-const SyncMiniIcon: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path
-      d="M3 8C3 5.24 5.24 3 8 3C9.77 3 11.29 3.95 12.09 5.36L13 4.45C11.93 2.78 10.1 1.7 8 1.7C4.52 1.7 1.7 4.52 1.7 8H3Z"
-      fill="white"
-    />
-    <path
-      d="M13 8C13 10.76 10.76 13 8 13C6.23 13 4.71 12.05 3.91 10.64L3 11.55C4.07 13.22 5.9 14.3 8 14.3C11.48 14.3 14.3 11.48 14.3 8H13Z"
-      fill="white"
-    />
-  </svg>
-);

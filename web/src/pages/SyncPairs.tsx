@@ -7,6 +7,7 @@ import { StatusIcon } from '../components/StatusIcon';
 import { SyncIcon, PlayIcon } from '../components/Icons';
 import { Modal } from '../components/Modal';
 import { showToast } from '../components/Toast';
+import { useI18n } from '../i18n';
 
 const emptyForm = {
   name: '',
@@ -23,6 +24,7 @@ const emptyForm = {
 type PairForm = typeof emptyForm;
 
 export const SyncPairs: React.FC = () => {
+  const { t } = useI18n();
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +41,7 @@ export const SyncPairs: React.FC = () => {
       setPairs(p);
       setProviders(prov.map((x) => ({ id: x.id, name: x.name })));
     } catch {
-      showToast('Failed to load pairs', 'error');
+      showToast(t('pairs.operationFailed'), 'error');
     } finally {
       setLoading(false);
     }
@@ -51,9 +53,9 @@ export const SyncPairs: React.FC = () => {
     setSyncingId(id);
     try {
       await triggerSync(id);
-      showToast('Sync triggered', 'success');
+      showToast(t('pairs.syncTriggered'), 'success');
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Sync failed', 'error');
+      showToast(e instanceof Error ? e.message : t('pairs.operationFailed'), 'error');
     } finally {
       setSyncingId(null);
     }
@@ -87,38 +89,38 @@ export const SyncPairs: React.FC = () => {
     try {
       if (editingId) {
         await updatePair(editingId, form);
-        showToast('Pair updated', 'success');
+        showToast(t('pairs.pairUpdated'), 'success');
       } else {
         await createPair(form);
-        showToast('Pair created', 'success');
+        showToast(t('pairs.pairCreated'), 'success');
       }
       setModalOpen(false);
       await load();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Operation failed', 'error');
+      showToast(e instanceof Error ? e.message : t('pairs.operationFailed'), 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this sync pair?')) return;
+    if (!confirm(t('pairs.confirmDelete'))) return;
     try {
       await deletePair(id);
-      showToast('Pair deleted', 'success');
+      showToast(t('pairs.pairDeleted'), 'success');
       await load();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Delete failed', 'error');
+      showToast(e instanceof Error ? e.message : t('pairs.operationFailed'), 'error');
     }
   };
 
   const handleToggle = async (pair: SyncPair) => {
     try {
       await updatePair(pair.id, { enabled: !pair.enabled });
-      showToast(pair.enabled ? 'Pair disabled' : 'Pair enabled', 'success');
+      showToast(pair.enabled ? t('pairs.pairDisabled') : t('pairs.pairEnabled'), 'success');
       await load();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Toggle failed', 'error');
+      showToast(e instanceof Error ? e.message : t('pairs.operationFailed'), 'error');
     }
   };
 
@@ -131,28 +133,28 @@ export const SyncPairs: React.FC = () => {
           onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
           style={inputStyle}
         >
-          <option value="">Select provider</option>
+          <option value="">{t('pairs.selectProvider')}</option>
           {providers.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
         </select>
       ) : key === 'mode' ? (
         <select value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} style={inputStyle}>
-          <option value="mirror">Mirror</option>
-          <option value="selective">Selective</option>
-          <option value="virtual">Virtual</option>
+          <option value="mirror">{t('pairs.mirror')}</option>
+          <option value="selective">{t('pairs.selective')}</option>
+          <option value="virtual">{t('pairs.virtual')}</option>
         </select>
       ) : key === 'direction' ? (
         <select value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} style={inputStyle}>
-          <option value="both">Bidirectional</option>
-          <option value="up">Upload Only</option>
-          <option value="down">Download Only</option>
+          <option value="both">{t('pairs.bidirectional')}</option>
+          <option value="up">{t('pairs.uploadOnly')}</option>
+          <option value="down">{t('pairs.downloadOnly')}</option>
         </select>
       ) : key === 'conflict_strategy' ? (
         <select value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} style={inputStyle}>
-          <option value="latest_wins">Latest Wins</option>
-          <option value="local_wins">Local Wins</option>
-          <option value="remote_wins">Remote Wins</option>
-          <option value="manual">Manual</option>
-          <option value="skip">Skip</option>
+          <option value="latest_wins">{t('pairs.latestWins')}</option>
+          <option value="local_wins">{t('pairs.localWins')}</option>
+          <option value="remote_wins">{t('pairs.remoteWins')}</option>
+          <option value="manual">{t('pairs.manual')}</option>
+          <option value="skip">{t('pairs.skip')}</option>
         </select>
       ) : (
         <input
@@ -170,19 +172,19 @@ export const SyncPairs: React.FC = () => {
     <div style={{ padding: 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-6)' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>Sync Pairs</h1>
+          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('pairs.title')}</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-            Configure and manage your sync pairs
+            {t('pairs.subtitle')}
           </p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}>+ New Pair</button>
+        <button className="btn btn-primary" onClick={openCreate}>{t('pairs.newPair')}</button>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-secondary)' }}>Loading...</div>
+        <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
       ) : pairs.length === 0 ? (
         <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-          No sync pairs configured. Click "+ New Pair" to create one.
+          {t('pairs.noPairs')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -195,40 +197,40 @@ export const SyncPairs: React.FC = () => {
                   {pair.local_path} <SyncIcon size={12} color="var(--accent-blue)" /> {pair.remote_path}
                 </div>
               </div>
-              <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? 'Enabled' : 'Disabled'}</span>
+              <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
               <span className="badge badge-blue">{pair.mode}</span>
               <span className="badge badge-blue">{pair.direction}</span>
               <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                 <button className="btn btn-sm btn-primary" onClick={() => handleSync(pair.id)} disabled={syncingId === pair.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   {syncingId === pair.id ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}
-                  Sync
+                  {t('dashboard.sync')}
                 </button>
-                <button className="btn btn-sm" onClick={() => openEdit(pair)}>Edit</button>
-                <button className="btn btn-sm" onClick={() => handleToggle(pair)}>{pair.enabled ? 'Disable' : 'Enable'}</button>
-                <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(pair.id)}>Delete</button>
+                <button className="btn btn-sm" onClick={() => openEdit(pair)}>{t('common.edit')}</button>
+                <button className="btn btn-sm" onClick={() => handleToggle(pair)}>{pair.enabled ? t('pairs.disable') : t('pairs.enable')}</button>
+                <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(pair.id)}>{t('common.delete')}</button>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Edit Sync Pair' : 'New Sync Pair'}>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? t('pairs.editPair') : t('pairs.newPairTitle')}>
         <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
-          {field('name', 'Name', { placeholder: 'my-photos' })}
-          {field('provider', 'Provider')}
-          {field('local_path', 'Local Path', { placeholder: '/home/user/photos' })}
-          {field('remote_path', 'Remote Path', { placeholder: '/photos' })}
-          {field('direction', 'Direction')}
-          {field('mode', 'Mode')}
-          {field('conflict_strategy', 'Conflict Strategy')}
+          {field('name', t('common.name'), { placeholder: 'my-photos' })}
+          {field('provider', t('pairs.provider'))}
+          {field('local_path', t('pairs.localPath'), { placeholder: '/home/user/photos' })}
+          {field('remote_path', t('pairs.remotePath'), { placeholder: '/photos' })}
+          {field('direction', t('pairs.direction'))}
+          {field('mode', t('pairs.mode'))}
+          {field('conflict_strategy', t('pairs.conflictStrategy'))}
           <div />
-          {field('include_patterns', 'Include Patterns', { placeholder: '*.md, docs/**' })}
-          {field('exclude_patterns', 'Exclude Patterns', { placeholder: '*.tmp, cache/**' })}
+          {field('include_patterns', t('pairs.includePatterns'), { placeholder: '*.md, docs/**' })}
+          {field('exclude_patterns', t('pairs.excludePatterns'), { placeholder: '*.tmp, cache/**' })}
           <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
             <button className="btn btn-primary" type="submit" disabled={submitting}>
-              {submitting ? 'Saving...' : editingId ? 'Save Changes' : 'Create Pair'}
+              {submitting ? t('common.saving') : editingId ? t('pairs.saveChanges') : t('pairs.createPair')}
             </button>
-            <button className="btn" type="button" onClick={() => setModalOpen(false)}>Cancel</button>
+            <button className="btn" type="button" onClick={() => setModalOpen(false)}>{t('common.cancel')}</button>
           </div>
         </form>
       </Modal>
