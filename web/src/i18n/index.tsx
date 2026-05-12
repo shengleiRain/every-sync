@@ -256,6 +256,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'logs.paused': 'PAUSED',
     'logs.logsCleared': 'Logs cleared',
     'logs.loadFailed': 'Failed to load logs',
+    'logs.connected': 'Live',
+    'logs.disconnected': 'Disconnected',
+    'logs.scrollToBottom': 'Scroll to bottom',
   },
 
   zh: {
@@ -477,6 +480,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'logs.paused': '已暂停',
     'logs.logsCleared': '日志已清空',
     'logs.loadFailed': '加载日志失败',
+    'logs.connected': '实时',
+    'logs.disconnected': '已断开',
+    'logs.scrollToBottom': '滚动到底部',
   },
 };
 

@@ -27,6 +27,7 @@ export const Logs: React.FC = () => {
   const [level, setLevel] = useState<string>('');
   const [search, setSearch] = useState('');
   const [paused, setPaused] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const appendLogEvent = useCallback((event: WSEvent) => {
@@ -68,23 +69,38 @@ export const Logs: React.FC = () => {
     });
   }, []);
 
-  useWebSocket({ onEvent: appendLogEvent });
+  const { connected: wsConnected } = useWebSocket({ onEvent: appendLogEvent });
 
   const loadInitial = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await listLogs();
-      setLogs((prev) => data.length > 0 ? data : prev);
+      const data = await listLogs(undefined, undefined, 200);
+      // Merge: API history first, then any WS logs that arrived before the API response
+      setLogs((prev) => {
+        if (data.length === 0) return prev;
+        if (prev.length === 0) return data;
+        // Keep WS logs that arrived after the latest history log
+        const lastHistoryTime = data[data.length - 1]?.timestamp || '';
+        const newerWsLogs = prev.filter(l => l.timestamp > lastHistoryTime);
+        return [...data, ...newerWsLogs];
+      });
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : t('logs.loadFailed'));
-      setLogs([]);
+      // Don't clear logs on API error - keep WS logs
     } finally {
       setLoading(false);
     }
   }, [t]);
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
+
+  const handleScroll = useCallback(() => {
+    if (!bodyRef.current) return;
+    const el = bodyRef.current;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    setIsAtBottom(atBottom);
+  }, []);
 
   const filteredLogs = logs.filter((log) => {
     if (level && log.level !== level) return false;
@@ -98,11 +114,11 @@ export const Logs: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!paused && bodyRef.current) {
+    if (!paused && bodyRef.current && isAtBottom) {
       const el = bodyRef.current;
       el.scrollTop = el.scrollHeight;
     }
-  }, [filteredLogs.length, paused]);
+  }, [filteredLogs.length, paused, isAtBottom]);
 
   const selectStyle: React.CSSProperties = {
     padding: 'var(--space-2) var(--space-3)',
@@ -121,13 +137,28 @@ export const Logs: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ padding: 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexShrink: 0, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('logs.title')}</h1>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-            {t('logs.subtitle')}
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: 'var(--space-1)' }}>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0 }}>
+              {t('logs.subtitle')}
+            </p>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-1)',
+              fontSize: 'var(--text-xs)',
+              color: wsConnected ? 'var(--accent-green)' : 'var(--accent-red)',
+            }}>
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%',
+                background: wsConnected ? 'var(--accent-green)' : 'var(--accent-red)',
+              }} />
+              {wsConnected ? t('logs.connected') : t('logs.disconnected')}
+            </span>
+          </div>
         </div>
         <div style={{ flex: 1 }} />
         <input
@@ -152,6 +183,7 @@ export const Logs: React.FC = () => {
       <div
         className="card"
         ref={bodyRef}
+        onScroll={handleScroll}
         style={{
           flex: 1,
           padding: 0,
@@ -209,6 +241,38 @@ export const Logs: React.FC = () => {
           ))
         )}
       </div>
+
+      {!isAtBottom && !paused && (
+        <button
+          onClick={() => {
+            if (bodyRef.current) {
+              bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+              setIsAtBottom(true);
+            }
+          }}
+          style={{
+            position: 'absolute',
+            bottom: '60px',
+            right: '24px',
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            background: 'var(--accent-blue)',
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            zIndex: 10,
+            fontSize: '18px',
+          }}
+          title={t('logs.scrollToBottom')}
+        >
+          ↓
+        </button>
+      )}
 
       <div style={{ display: 'flex', gap: 'var(--space-4)', padding: 'var(--space-2) 0', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
         <span>{t('logs.total')}: <strong>{logs.length}</strong></span>
