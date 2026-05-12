@@ -201,6 +201,15 @@ const translations: Record<Lang, Record<string, string>> = {
     'providers.confirmDelete': 'Delete this provider?',
     'providers.loadFailed': 'Failed to load providers',
     'providers.invalidParams': 'Parameters must be valid JSON object values',
+    'providers.testConnection': 'Test Connection',
+    'providers.testing': 'Testing...',
+    'providers.testSuccess': 'Connection successful!',
+    'providers.testFailed': 'Connection failed',
+    'providers.confirmCascadeDelete': 'This provider is used by: {pairs}. Delete provider and all dependent sync pairs?',
+    'providers.providerAndPairsDeleted': 'Provider and dependent pairs deleted',
+    'providers.deleteFailed': 'Delete failed',
+    'providers.paramsHint.webdav': 'endpoint, username, password, prefix, timeout, auth_mode',
+    'providers.paramsHint.local': 'root_path',
 
     // Conflicts
     'conflicts.title': 'Conflicts',
@@ -425,6 +434,15 @@ const translations: Record<Lang, Record<string, string>> = {
     'providers.confirmDelete': '确定删除此提供商？',
     'providers.loadFailed': '加载提供商失败',
     'providers.invalidParams': '参数必须是有效的 JSON 对象',
+    'providers.testConnection': '测试连接',
+    'providers.testing': '测试中...',
+    'providers.testSuccess': '连接成功！',
+    'providers.testFailed': '连接失败',
+    'providers.confirmCascadeDelete': '此存储源被以下同步对使用：{pairs}。确定删除存储源及所有关联的同步对？',
+    'providers.providerAndPairsDeleted': '存储源及关联同步对已删除',
+    'providers.deleteFailed': '删除失败',
+    'providers.paramsHint.webdav': 'endpoint, username, password, prefix, timeout, auth_mode',
+    'providers.paramsHint.local': 'root_path',
 
     // Conflicts
     'conflicts.title': '冲突',

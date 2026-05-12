@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { listProviders, createProvider, updateProvider, deleteProvider } from '../api/client';
+import { listProviders, createProvider, updateProvider, deleteProvider, deleteProviderForce, testProvider } from '../api/client';
 import type { Provider } from '../api/client';
 import { GearIcon, CheckIcon, CloseIcon } from '../components/Icons';
 import { Modal } from '../components/Modal';
@@ -12,10 +12,24 @@ interface ProviderForm {
   params: string;
 }
 
+const providerTemplates: Record<string, string> = {
+  webdav: JSON.stringify({
+    endpoint: "https://webdav.example.com/dav",
+    username: "",
+    password: "",
+    prefix: "",
+    timeout: "",
+    auth_mode: "basic",
+  }, null, 2),
+  local: JSON.stringify({
+    root_path: "/path/to/directory",
+  }, null, 2),
+};
+
 const emptyForm: ProviderForm = {
   name: '',
   type: 'webdav',
-  params: '{\n  "endpoint": "https://webdav.example.com/dav",\n  "username": "",\n  "password": ""\n}',
+  params: providerTemplates.webdav,
 };
 
 interface ProviderWithParams extends Provider {
@@ -32,6 +46,8 @@ export const Providers: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProviderForm>({ ...emptyForm });
   const [submitting, setSubmitting] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,6 +69,7 @@ export const Providers: React.FC = () => {
   const openCreate = () => {
     setEditingId(null);
     setForm({ ...emptyForm });
+    setTestResult(null);
     setModalOpen(true);
   };
 
@@ -63,6 +80,7 @@ export const Providers: React.FC = () => {
       type: p.type || 'webdav',
       params: JSON.stringify(p.params ?? {}, null, 2),
     });
+    setTestResult(null);
     setModalOpen(true);
   };
 
@@ -90,6 +108,26 @@ export const Providers: React.FC = () => {
     }
   };
 
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const params = JSON.parse(form.params || '{}');
+      const result = await testProvider({ type: form.type, params });
+      setTestResult({
+        ok: result.status === 'ok',
+        message: result.status === 'ok' ? t('providers.testSuccess') : (result.error || t('providers.testFailed')),
+      });
+    } catch (e) {
+      setTestResult({
+        ok: false,
+        message: e instanceof Error ? e.message : t('providers.testFailed'),
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm(t('providers.confirmDelete'))) return;
     try {
@@ -97,7 +135,35 @@ export const Providers: React.FC = () => {
       showToast(t('providers.providerDeleted'), 'success');
       await load();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t('pairs.operationFailed'), 'error');
+      const errorMsg = e instanceof Error ? e.message : '';
+
+      // Check if it's a 409 conflict (has dependent pairs)
+      if (errorMsg.includes('409')) {
+        let dependentPairs: Array<{ id: number; name: string }> = [];
+        try {
+          const jsonStr = errorMsg.replace(/^API\s*409:\s*/i, '');
+          const parsed = JSON.parse(jsonStr);
+          dependentPairs = parsed.pairs || [];
+        } catch { /* ignore parse error */ }
+
+        const pairList = dependentPairs.length > 0
+          ? dependentPairs.map(p => `"${p.name}"`).join(', ')
+          : 'sync pairs';
+
+        if (!confirm(
+          t('providers.confirmCascadeDelete', { pairs: pairList })
+        )) return;
+
+        try {
+          await deleteProviderForce(id);
+          showToast(t('providers.providerAndPairsDeleted'), 'success');
+          await load();
+        } catch (e2) {
+          showToast(e2 instanceof Error ? e2.message : t('providers.deleteFailed'), 'error');
+        }
+      } else {
+        showToast(errorMsg || t('providers.deleteFailed'), 'error');
+      }
     }
   };
 
@@ -167,13 +233,31 @@ export const Providers: React.FC = () => {
           </div>
           <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
             <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('providers.type')}</label>
-            <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} style={inputStyle}>
+            <select
+              value={form.type}
+              onChange={(e) => {
+                const newType = e.target.value;
+                if (!editingId && providerTemplates[newType]) {
+                  setForm(f => ({ ...f, type: newType, params: providerTemplates[newType] }));
+                } else {
+                  setForm(f => ({ ...f, type: newType }));
+                }
+              }}
+              style={inputStyle}
+            >
               <option value="webdav">WebDAV</option>
               <option value="local">Local</option>
             </select>
           </div>
           <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 'var(--space-1)' }}>
-            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('providers.params')}</label>
+            <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>
+              {t('providers.params')}
+              {form.type && t(`providers.paramsHint.${form.type}`) && (
+                <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 'var(--space-2)' }}>
+                  ({t(`providers.paramsHint.${form.type}`)})
+                </span>
+              )}
+            </label>
             <textarea
               value={form.params}
               onChange={(e) => setForm((f) => ({ ...f, params: e.target.value }))}
@@ -181,7 +265,24 @@ export const Providers: React.FC = () => {
               style={{ ...inputStyle, minHeight: '120px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}
             />
           </div>
-          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-sm"
+              type="button"
+              disabled={testing || !form.params}
+              onClick={handleTestConnection}
+            >
+              {testing ? t('providers.testing') : t('providers.testConnection')}
+            </button>
+            {testResult && (
+              <span style={{
+                fontSize: 'var(--text-sm)',
+                color: testResult.ok ? 'var(--accent-green)' : 'var(--accent-red)',
+              }}>
+                {testResult.ok ? '✓' : '✗'} {testResult.message}
+              </span>
+            )}
+            <div style={{ flex: 1 }} />
             <button className="btn btn-primary" type="submit" disabled={submitting}>
               {submitting ? t('common.saving') : editingId ? t('providers.saveChanges') : t('providers.createProvider')}
             </button>

@@ -403,6 +403,18 @@ export async function deleteProvider(id: string): Promise<void> {
   await fetchJSON(`/providers/${id}`, { method: 'DELETE' });
 }
 
+export async function deleteProviderForce(id: string): Promise<void> {
+  await fetchJSON(`/providers/${id}?force=true`, { method: 'DELETE' });
+}
+
+export async function testProvider(data: {
+  id?: number;
+  type?: string;
+  params?: Record<string, string>;
+}): Promise<{ status: string; error?: string }> {
+  return fetchJSON('/providers/test', { method: 'POST', body: JSON.stringify(data) });
+}
+
 export async function materializeFile(pairId: string, path: string): Promise<void> {
   await fetchJSON(`/pairs/${pairId}/materialize`, {
     method: 'POST',
