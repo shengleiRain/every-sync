@@ -1,21 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { getDashboardStats, listPairs, triggerSync, syncAll } from '../api/client';
 import { showToast } from '../components/Toast';
 import type { DashboardStats, SyncPair } from '../api/client';
 import { StatusIcon } from '../components/StatusIcon';
 import { SyncIcon, UploadIcon, DownloadIcon, WarningIcon, PlayIcon } from '../components/Icons';
-import { useI18n } from '../i18n';
+import { getPairModeLabelKey, getSyncStatusLabelKey, useI18n } from '../i18n';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
 }
 
 function formatRelative(dateStr: string | undefined, t: (key: string, params?: Record<string, string | number>) => string): string {
   if (!dateStr) return t('time.never');
   const diff = Date.now() - new Date(dateStr).getTime();
+  if (!Number.isFinite(diff)) return t('time.never');
   if (diff < 60000) return t('time.justNow');
   if (diff < 3600000) return t('time.minutesAgo', { n: Math.floor(diff / 60000) });
   if (diff < 86400000) return t('time.hoursAgo', { n: Math.floor(diff / 3600000) });
@@ -27,40 +28,36 @@ export const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [syncingPairId, setSyncingPairId] = useState<string | null>(null);
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [s, p] = await Promise.all([getDashboardStats(), listPairs()]);
+      setStats(s);
+      setPairs(p);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('dashboard.loadFailed'));
+      setStats(null);
+      setPairs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [s, p] = await Promise.all([getDashboardStats(), listPairs()]);
-        setStats(s);
-        setPairs(p);
-      } catch {
-        setStats({
-          engine_status: 'stopped',
-          active_pairs: 0,
-          total_pairs: 0,
-          pending_tasks: 0,
-          active_workers: 0,
-          upload_bytes: 0,
-          download_bytes: 0,
-          conflicts: 0,
-          virtual_files: 0,
-        });
-        setPairs([]);
-      } finally {
-        setLoading(false);
-      }
-    };
     load();
-  }, []);
+  }, [load]);
 
   const handleSync = async (pairId: string) => {
     setSyncingPairId(pairId);
     try {
       await triggerSync(pairId);
-    } catch {
-      // ignore errors
+      showToast(t('pairs.syncTriggered'), 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t('dashboard.syncFailed'), 'error');
     } finally {
       setSyncingPairId(null);
     }
@@ -85,6 +82,19 @@ export const Dashboard: React.FC = () => {
     );
   }
 
+  if (error) {
+    return (
+      <PageWrapper>
+        <div className="card" style={styles.emptyState}>
+          <div style={{ color: 'var(--accent-red)', marginBottom: 'var(--space-3)' }}>
+            {t('dashboard.loadFailed')}: {error}
+          </div>
+          <button className="btn" onClick={load}>{t('common.retry')}</button>
+        </div>
+      </PageWrapper>
+    );
+  }
+
   const statusKey = stats?.engine_status === 'running' ? 'status.running' : stats?.engine_status === 'paused' ? 'status.paused' : 'status.stopped';
   const engineLabel = t(statusKey);
   const engineColor = stats?.engine_status === 'running' ? 'var(--accent-green)' : stats?.engine_status === 'paused' ? 'var(--accent-amber)' : 'var(--text-tertiary)';
@@ -100,7 +110,7 @@ export const Dashboard: React.FC = () => {
           <button className="btn btn-primary" onClick={handleSyncAll} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
             <SyncIcon size={15} color="#fff" /> {t('dashboard.syncAll')}
           </button>
-          <button className="btn" onClick={() => window.location.reload()}>
+          <button className="btn" onClick={load}>
             {t('dashboard.refresh')}
           </button>
         </div>
@@ -171,12 +181,12 @@ export const Dashboard: React.FC = () => {
                       </span>
                     </td>
                     <td style={styles.td}>
-                      <span className="badge badge-blue">{pair.mode}</span>
+                      <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
                     </td>
                     <td style={styles.td}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                         <StatusIcon status={pair.status} />
-                        <span style={{ textTransform: 'capitalize' }}>{pair.status}</span>
+                        <span>{t(getSyncStatusLabelKey(pair.status))}</span>
                       </span>
                     </td>
                     <td style={{ ...styles.td, color: 'var(--text-secondary)' }}>

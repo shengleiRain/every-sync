@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   listPairs, createPair, updatePair, deletePair, triggerSync, listProviders,
 } from '../api/client';
@@ -7,14 +7,14 @@ import { StatusIcon } from '../components/StatusIcon';
 import { SyncIcon, PlayIcon } from '../components/Icons';
 import { Modal } from '../components/Modal';
 import { showToast } from '../components/Toast';
-import { useI18n } from '../i18n';
+import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
 
 const emptyForm = {
   name: '',
   local_path: '',
   remote_path: '',
   provider: '',
-  mode: 'mirror',
+  mode: 'normal',
   direction: 'both',
   conflict_strategy: 'latest_wins',
   include_patterns: '',
@@ -28,6 +28,7 @@ export const SyncPairs: React.FC = () => {
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -35,19 +36,24 @@ export const SyncPairs: React.FC = () => {
   const [form, setForm] = useState<PairForm>({ ...emptyForm });
   const [submitting, setSubmitting] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const [p, prov] = await Promise.all([listPairs(), listProviders()]);
       setPairs(p);
       setProviders(prov.map((x) => ({ id: x.id, name: x.name })));
-    } catch {
-      showToast(t('pairs.operationFailed'), 'error');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : t('pairs.loadFailed');
+      setLoadError(message);
+      setPairs([]);
+      showToast(message, 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const handleSync = async (id: string) => {
     setSyncingId(id);
@@ -73,12 +79,12 @@ export const SyncPairs: React.FC = () => {
       name: pair.name || '',
       local_path: pair.local_path || '',
       remote_path: pair.remote_path || '',
-      provider: pair.remote_provider || '',
-      mode: pair.mode || 'mirror',
+      provider: pair.provider || '',
+      mode: pair.mode || 'normal',
       direction: pair.direction || 'both',
-      conflict_strategy: 'latest_wins',
-      include_patterns: '',
-      exclude_patterns: '',
+      conflict_strategy: pair.conflict_strategy || 'latest_wins',
+      include_patterns: pair.include_patterns || '',
+      exclude_patterns: pair.exclude_patterns || '',
     });
     setModalOpen(true);
   };
@@ -138,8 +144,7 @@ export const SyncPairs: React.FC = () => {
         </select>
       ) : key === 'mode' ? (
         <select value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} style={inputStyle}>
-          <option value="mirror">{t('pairs.mirror')}</option>
-          <option value="selective">{t('pairs.selective')}</option>
+          <option value="normal">{t('pairs.normal')}</option>
           <option value="virtual">{t('pairs.virtual')}</option>
         </select>
       ) : key === 'direction' ? (
@@ -182,6 +187,11 @@ export const SyncPairs: React.FC = () => {
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
+      ) : loadError ? (
+        <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--accent-red)' }}>
+          <div style={{ marginBottom: 'var(--space-3)' }}>{t('pairs.loadFailed')}: {loadError}</div>
+          <button className="btn" onClick={load}>{t('common.retry')}</button>
+        </div>
       ) : pairs.length === 0 ? (
         <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>
           {t('pairs.noPairs')}
@@ -189,7 +199,7 @@ export const SyncPairs: React.FC = () => {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {pairs.map((pair) => (
-            <div key={pair.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)' }}>
+            <div key={pair.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)', flexWrap: 'wrap' }}>
               <StatusIcon status={pair.status} size={20} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, marginBottom: '2px' }}>{pair.name}</div>
@@ -198,8 +208,8 @@ export const SyncPairs: React.FC = () => {
                 </div>
               </div>
               <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
-              <span className="badge badge-blue">{pair.mode}</span>
-              <span className="badge badge-blue">{pair.direction}</span>
+              <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
+              <span className="badge badge-blue">{t(getPairDirectionLabelKey(pair.direction))}</span>
               <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                 <button className="btn btn-sm btn-primary" onClick={() => handleSync(pair.id)} disabled={syncingId === pair.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   {syncingId === pair.id ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}

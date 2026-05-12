@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { listConflicts, resolveConflict } from '../api/client';
 import type { ConflictEntry } from '../api/client';
 import { WarningIcon } from '../components/Icons';
@@ -7,16 +8,26 @@ import { useI18n } from '../i18n';
 
 export const Conflicts: React.FC = () => {
   const { t } = useI18n();
+  const location = useLocation();
   const [conflicts, setConflicts] = useState<ConflictEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
 
-  useEffect(() => {
-    listConflicts()
+  const load = useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    setLoading(true);
+    setLoadError(null);
+    listConflicts(params.get('pair_id') ?? undefined)
       .then(setConflicts)
-      .catch(() => setConflicts([]))
+      .catch((e) => {
+        setConflicts([]);
+        setLoadError(e instanceof Error ? e.message : t('conflicts.loadFailed'));
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [location.search, t]);
+
+  useEffect(() => { load(); }, [load]);
 
   const handleResolve = async (id: string, strategy: string) => {
     setResolving(id);
@@ -42,6 +53,11 @@ export const Conflicts: React.FC = () => {
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
+      ) : loadError ? (
+        <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--accent-red)' }}>
+          <div style={{ marginBottom: 'var(--space-3)' }}>{t('conflicts.loadFailed')}: {loadError}</div>
+          <button className="btn" onClick={load}>{t('common.retry')}</button>
+        </div>
       ) : conflicts.length === 0 ? (
         <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>
           <WarningIcon size={32} color="var(--accent-green)" />
@@ -64,12 +80,12 @@ export const Conflicts: React.FC = () => {
               <div style={{ display: 'flex', gap: 'var(--space-6)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
                 <div>
                   <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{t('conflicts.local')}</div>
-                  <div>{t('conflicts.modified')}: {new Date(c.local_modified).toLocaleString()}</div>
+                  <div>{t('conflicts.modified')}: {formatDate(c.local_modified, t)}</div>
                   <div>{t('conflicts.size')}: {c.local_size} {t('conflicts.bytes')}</div>
                 </div>
                 <div>
                   <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{t('conflicts.remote')}</div>
-                  <div>{t('conflicts.modified')}: {new Date(c.remote_modified).toLocaleString()}</div>
+                  <div>{t('conflicts.modified')}: {formatDate(c.remote_modified, t)}</div>
                   <div>{t('conflicts.size')}: {c.remote_size} {t('conflicts.bytes')}</div>
                 </div>
               </div>
@@ -86,3 +102,9 @@ export const Conflicts: React.FC = () => {
     </div>
   );
 };
+
+function formatDate(value: string | undefined, t: (key: string) => string): string {
+  if (!value) return t('common.notAvailable');
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? t('common.notAvailable') : date.toLocaleString();
+}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { listPairs, listFiles, materializeFile, excludePath } from '../api/client';
+import { useNavigate } from 'react-router-dom';
+import { listPairs, listFiles, materializeFile, selectFolders } from '../api/client';
 import type { SyncPair, FileEntry, FileSide } from '../api/client';
 import { StatusIcon } from '../components/StatusIcon';
 import { Breadcrumb } from '../components/Breadcrumb';
@@ -12,21 +13,23 @@ import {
   CloudIcon,
   ClockIcon,
   WarningIcon,
-  CloseIcon,
 } from '../components/Icons';
-import { useI18n } from '../i18n';
+import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
+import { showToast } from '../components/Toast';
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '—';
   const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const val = bytes / Math.pow(1024, i);
   return val.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
 }
 
 function formatDate(iso: string, t: (key: string, params?: Record<string, string | number>) => string): string {
+  if (!iso) return t('common.notAvailable');
   try {
     const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return t('common.notAvailable');
     const now = new Date();
     const diff = now.getTime() - d.getTime();
     if (diff < 60000) return t('time.justNow');
@@ -47,13 +50,16 @@ interface ActionMenuState {
 
 export const FileBrowser: React.FC = () => {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [selectedPairId, setSelectedPairId] = useState<string>('');
   const [side, setSide] = useState<FileSide>('local');
   const [currentPath, setCurrentPath] = useState('/');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pairsLoading, setPairsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pairsError, setPairsError] = useState<string | null>(null);
   const [actionMenu, setActionMenu] = useState<ActionMenuState>({
     visible: false,
     x: 0,
@@ -63,19 +69,30 @@ export const FileBrowser: React.FC = () => {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const selectedPair = pairs.find((p) => p.id === selectedPairId);
+  const selectedFolders = React.useMemo(() => {
+    if (!selectedPair?.selected_folders) return new Set<string>();
+    try {
+      const parsed = JSON.parse(selectedPair.selected_folders);
+      return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch {
+      return new Set<string>();
+    }
+  }, [selectedPair?.selected_folders]);
 
   useEffect(() => {
+    setPairsLoading(true);
+    setPairsError(null);
     listPairs()
       .then((p) => {
         setPairs(p);
-        if (p.length > 0 && !selectedPairId) {
-          setSelectedPairId(p[0].id);
-        }
+        setSelectedPairId((current) => current || p[0]?.id || '');
       })
-      .catch(() => {
+      .catch((e) => {
+        setPairsError(e instanceof Error ? e.message : t('files.loadPairsFailed'));
         setPairs([]);
-      });
-  }, []);
+      })
+      .finally(() => setPairsLoading(false));
+  }, [t]);
 
   useEffect(() => {
     if (!selectedPairId) return;
@@ -109,7 +126,7 @@ export const FileBrowser: React.FC = () => {
 
   const handleActionClick = useCallback((e: React.MouseEvent, entry: FileEntry) => {
     e.stopPropagation();
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setActionMenu({
       visible: true,
       x: rect.right,
@@ -124,23 +141,40 @@ export const FileBrowser: React.FC = () => {
       await materializeFile(selectedPairId, actionMenu.entry.path);
       const files = await listFiles(selectedPairId, currentPath, side);
       setEntries(files);
-    } catch {
-      // ignore
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t('files.materializeFailed'), 'error');
     }
     setActionMenu({ visible: false, x: 0, y: 0, entry: null });
-  }, [selectedPairId, currentPath, side, actionMenu.entry]);
+  }, [selectedPairId, currentPath, side, actionMenu.entry, t]);
 
-  const handleExclude = useCallback(async () => {
+  const handleViewVersions = useCallback(() => {
     if (!selectedPairId || !actionMenu.entry) return;
-    try {
-      await excludePath(selectedPairId, actionMenu.entry.path);
-      const files = await listFiles(selectedPairId, currentPath, side);
-      setEntries(files);
-    } catch {
-      // ignore
-    }
+    navigate(`/versions?pair_id=${encodeURIComponent(selectedPairId)}&path=${encodeURIComponent(actionMenu.entry.path)}`);
     setActionMenu({ visible: false, x: 0, y: 0, entry: null });
-  }, [selectedPairId, currentPath, side, actionMenu.entry]);
+  }, [actionMenu.entry, navigate, selectedPairId]);
+
+  const handleResolveConflict = useCallback(() => {
+    if (!selectedPairId) return;
+    navigate(`/conflicts?pair_id=${encodeURIComponent(selectedPairId)}`);
+    setActionMenu({ visible: false, x: 0, y: 0, entry: null });
+  }, [navigate, selectedPairId]);
+
+  const handleFolderSelection = useCallback(async (entry: FileEntry, selected: boolean) => {
+    if (!selectedPairId) return;
+    const next = new Set(selectedFolders);
+    if (selected) {
+      next.add(entry.path);
+    } else {
+      next.delete(entry.path);
+    }
+    try {
+      const updated = await selectFolders(selectedPairId, [...next]);
+      setPairs((prev) => prev.map((pair) => pair.id === updated.id ? updated : pair));
+      setEntries((prev) => prev.map((item) => item.path === entry.path ? { ...item, selected } : item));
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t('files.selectionFailed'), 'error');
+    }
+  }, [selectedFolders, selectedPairId, t]);
 
   const sorted = [...entries].sort((a, b) => {
     if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
@@ -177,11 +211,12 @@ export const FileBrowser: React.FC = () => {
                 cursor: 'pointer',
                 minWidth: '200px',
               }}
+              disabled={pairsLoading}
             >
               <option value="">{t('files.selectPair')}</option>
               {pairs.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.mode}, {p.direction})
+                  {p.name} ({t(getPairModeLabelKey(p.mode))}, {t(getPairDirectionLabelKey(p.direction))})
                 </option>
               ))}
             </select>
@@ -221,16 +256,16 @@ export const FileBrowser: React.FC = () => {
             <StatusIcon status={selectedPair.status} size={14} />
             <span>{selectedPair.local_path}</span>
             <SyncIcon size={14} color="var(--accent-blue)" />
-            <span>{selectedPair.remote_provider}: {selectedPair.remote_path}</span>
-            <span className="badge badge-blue">{selectedPair.mode}</span>
-            <span className="badge badge-blue">{selectedPair.direction}</span>
+            <span>{selectedPair.provider}: {selectedPair.remote_path}</span>
+            <span className="badge badge-blue">{t(getPairModeLabelKey(selectedPair.mode))}</span>
+            <span className="badge badge-blue">{t(getPairDirectionLabelKey(selectedPair.direction))}</span>
           </div>
         )}
       </div>
 
-      {selectedPairId && (
-        <Breadcrumb path={currentPath} onNavigate={handleNavigate} />
-      )}
+        {selectedPairId && (
+          <Breadcrumb path={currentPath} onNavigate={handleNavigate} />
+        )}
 
       <div
         className="card"
@@ -271,7 +306,12 @@ export const FileBrowser: React.FC = () => {
           <span></span>
         </div>
 
-        {!selectedPairId && (
+        {pairsError && (
+          <div style={{ ...emptyStyle, color: 'var(--accent-red)' }}>
+            {t('files.loadPairsFailed')}: {pairsError}
+          </div>
+        )}
+        {!pairsError && !selectedPairId && (
           <div style={emptyStyle}>{t('files.selectToBrowse')}</div>
         )}
         {loading && (
@@ -291,9 +331,10 @@ export const FileBrowser: React.FC = () => {
           <FileRow
             key={entry.path}
             entry={entry}
-            side={side}
             onFolderClick={handleFolderClick}
             onActionClick={handleActionClick}
+            onSelectionToggle={handleFolderSelection}
+            selected={entry.type === 'folder' && (selectedFolders.has(entry.path) || Boolean(entry.selected))}
             t={t}
           />
         ))}
@@ -316,20 +357,16 @@ export const FileBrowser: React.FC = () => {
               {t('files.materialize')}
             </div>
           )}
-          <div className="dropdown-item">
+          <div className="dropdown-item" onClick={handleViewVersions}>
             <ClockIcon size={16} color="var(--text-secondary)" />
             {t('files.viewVersions')}
           </div>
           {actionMenu.entry.status === 'conflict' && (
-            <div className="dropdown-item">
+            <div className="dropdown-item" onClick={handleResolveConflict}>
               <WarningIcon size={16} color="var(--accent-red)" />
               {t('files.resolveConflict')}
             </div>
           )}
-          <div className="dropdown-item" onClick={handleExclude}>
-            <CloseIcon size={16} color="var(--accent-red)" />
-            {t('files.exclude')}
-          </div>
         </div>
       )}
     </div>
@@ -338,13 +375,14 @@ export const FileBrowser: React.FC = () => {
 
 interface FileRowProps {
   entry: FileEntry;
-  side: FileSide;
   onFolderClick: (entry: FileEntry) => void;
   onActionClick: (e: React.MouseEvent, entry: FileEntry) => void;
+  onSelectionToggle: (entry: FileEntry, selected: boolean) => void;
+  selected: boolean;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionClick, t }) => {
+const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, onSelectionToggle, selected, t }) => {
   const isFolder = entry.type === 'folder';
   const [hovered, setHovered] = useState(false);
 
@@ -371,9 +409,10 @@ const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionC
           <input
             type="checkbox"
             className="checkbox"
-            checked={entry.selected ?? false}
-            onChange={() => {/* toggle selection */}}
+            checked={selected}
+            onChange={(e) => onSelectionToggle(entry, e.currentTarget.checked)}
             onClick={(e) => e.stopPropagation()}
+            aria-label={`${t('common.enabled')}: ${entry.name}`}
           />
         )}
       </span>
@@ -417,9 +456,11 @@ const FileRow: React.FC<FileRowProps> = ({ entry, side, onFolderClick, onActionC
             height: '28px',
             padding: '4px',
             borderRadius: 'var(--radius-sm)',
-            opacity: hovered ? 1 : 0,
+            opacity: hovered ? 1 : 0.55,
             transition: 'opacity var(--transition-fast)',
           }}
+          title={t('common.actions')}
+          aria-label={t('common.actions')}
         >
           <DotsIcon size={16} color="var(--text-secondary)" />
         </button>

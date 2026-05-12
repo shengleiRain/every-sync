@@ -2,6 +2,40 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 
 export type Lang = 'en' | 'zh';
 
+export function getPairModeLabelKey(mode: string): string {
+  return mode === 'virtual' ? 'pairs.virtual' : 'pairs.normal';
+}
+
+export function getPairDirectionLabelKey(direction: string): string {
+  switch (direction) {
+    case 'up':
+      return 'pairs.uploadOnly';
+    case 'down':
+      return 'pairs.downloadOnly';
+    default:
+      return 'pairs.bidirectional';
+  }
+}
+
+export function getSyncStatusLabelKey(status: string): string {
+  switch (status) {
+    case 'synced':
+      return 'status.synced';
+    case 'syncing':
+      return 'status.syncing';
+    case 'virtual':
+      return 'status.virtual';
+    case 'conflict':
+      return 'status.conflict';
+    case 'excluded':
+      return 'status.excluded';
+    case 'error':
+      return 'status.error';
+    default:
+      return 'status.pending';
+  }
+}
+
 const translations: Record<Lang, Record<string, string>> = {
   en: {
     // Sidebar
@@ -34,6 +68,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'common.disabled': 'Disabled',
     'common.status': 'Status',
     'common.actions': 'Actions',
+    'common.error': 'Error',
+    'common.retry': 'Retry',
+    'common.notAvailable': 'Not available',
 
     // Time
     'time.never': 'Never',
@@ -46,6 +83,12 @@ const translations: Record<Lang, Record<string, string>> = {
     'status.running': 'Running',
     'status.paused': 'Paused',
     'status.stopped': 'Stopped',
+    'status.synced': 'Synced',
+    'status.syncing': 'Syncing',
+    'status.virtual': 'Virtual',
+    'status.conflict': 'Conflict',
+    'status.excluded': 'Excluded',
+    'status.error': 'Error',
     'status.active': 'Active',
     'status.pending': 'Pending',
     'status.alert': 'Alert',
@@ -72,6 +115,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'dashboard.sync': 'Sync',
     'dashboard.syncTriggered': 'Sync triggered for all pairs',
     'dashboard.syncFailed': 'Sync failed',
+    'dashboard.loadFailed': 'Failed to load dashboard data',
 
     // File Browser
     'files.title': 'File Browser',
@@ -90,6 +134,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'files.resolveConflict': 'Resolve Conflict',
     'files.exclude': 'Exclude',
     'files.error': 'Error',
+    'files.loadPairsFailed': 'Failed to load sync pairs',
+    'files.materializeFailed': 'Materialize failed',
+    'files.selectionFailed': 'Folder selection failed',
 
     // Sync Pairs
     'pairs.title': 'Sync Pairs',
@@ -114,6 +161,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'pairs.bidirectional': 'Bidirectional',
     'pairs.uploadOnly': 'Upload Only',
     'pairs.downloadOnly': 'Download Only',
+    'pairs.normal': 'Normal',
     'pairs.latestWins': 'Latest Wins',
     'pairs.localWins': 'Local Wins',
     'pairs.remoteWins': 'Remote Wins',
@@ -130,6 +178,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'pairs.pairEnabled': 'Pair enabled',
     'pairs.syncTriggered': 'Sync triggered',
     'pairs.operationFailed': 'Operation failed',
+    'pairs.loadFailed': 'Failed to load sync pairs',
 
     // Providers
     'providers.title': 'Providers',
@@ -149,6 +198,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'providers.providerDeleted': 'Provider deleted',
     'providers.confirmDelete': 'Delete this provider?',
     'providers.loadFailed': 'Failed to load providers',
+    'providers.invalidParams': 'Parameters must be valid JSON object values',
 
     // Conflicts
     'conflicts.title': 'Conflicts',
@@ -165,6 +215,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'conflicts.skip': 'Skip',
     'conflicts.resolved': 'Conflict resolved',
     'conflicts.resolutionFailed': 'Resolution failed',
+    'conflicts.loadFailed': 'Failed to load conflicts',
 
     // Versions
     'versions.title': 'Version History',
@@ -183,6 +234,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'versions.versionRestored': 'Version restored',
     'versions.restoreFailed': 'Restore failed',
     'versions.loadFailed': 'Failed to load versions',
+    'versions.pairsLoadFailed': 'Failed to load sync pairs',
 
     // Logs
     'logs.title': 'Logs',
@@ -201,6 +253,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'logs.showing': 'Showing',
     'logs.paused': 'PAUSED',
     'logs.logsCleared': 'Logs cleared',
+    'logs.loadFailed': 'Failed to load logs',
   },
 
   zh: {
@@ -234,6 +287,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'common.disabled': '已禁用',
     'common.status': '状态',
     'common.actions': '操作',
+    'common.error': '错误',
+    'common.retry': '重试',
+    'common.notAvailable': '不可用',
 
     // Time
     'time.never': '从未',
@@ -246,6 +302,12 @@ const translations: Record<Lang, Record<string, string>> = {
     'status.running': '运行中',
     'status.paused': '已暂停',
     'status.stopped': '已停止',
+    'status.synced': '已同步',
+    'status.syncing': '同步中',
+    'status.virtual': '虚拟',
+    'status.conflict': '冲突',
+    'status.excluded': '已排除',
+    'status.error': '错误',
     'status.active': '活动',
     'status.pending': '等待中',
     'status.alert': '警告',
@@ -272,6 +334,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'dashboard.sync': '同步',
     'dashboard.syncTriggered': '已触发全部同步',
     'dashboard.syncFailed': '同步失败',
+    'dashboard.loadFailed': '加载仪表盘数据失败',
 
     // File Browser
     'files.title': '文件浏览器',
@@ -290,6 +353,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'files.resolveConflict': '解决冲突',
     'files.exclude': '排除',
     'files.error': '错误',
+    'files.loadPairsFailed': '加载同步对失败',
+    'files.materializeFailed': '实体化失败',
+    'files.selectionFailed': '文件夹选择失败',
 
     // Sync Pairs
     'pairs.title': '同步对',
@@ -314,6 +380,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'pairs.bidirectional': '双向',
     'pairs.uploadOnly': '仅上传',
     'pairs.downloadOnly': '仅下载',
+    'pairs.normal': '普通',
     'pairs.latestWins': '最新优先',
     'pairs.localWins': '本地优先',
     'pairs.remoteWins': '远程优先',
@@ -330,6 +397,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'pairs.pairEnabled': '同步对已启用',
     'pairs.syncTriggered': '同步已触发',
     'pairs.operationFailed': '操作失败',
+    'pairs.loadFailed': '加载同步对失败',
 
     // Providers
     'providers.title': '存储提供商',
@@ -349,6 +417,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'providers.providerDeleted': '提供商已删除',
     'providers.confirmDelete': '确定删除此提供商？',
     'providers.loadFailed': '加载提供商失败',
+    'providers.invalidParams': '参数必须是有效的 JSON 对象',
 
     // Conflicts
     'conflicts.title': '冲突',
@@ -365,6 +434,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'conflicts.skip': '跳过',
     'conflicts.resolved': '冲突已解决',
     'conflicts.resolutionFailed': '解决失败',
+    'conflicts.loadFailed': '加载冲突失败',
 
     // Versions
     'versions.title': '版本历史',
@@ -383,6 +453,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'versions.versionRestored': '版本已恢复',
     'versions.restoreFailed': '恢复失败',
     'versions.loadFailed': '加载版本失败',
+    'versions.pairsLoadFailed': '加载同步对失败',
 
     // Logs
     'logs.title': '日志',
@@ -401,6 +472,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'logs.showing': '显示',
     'logs.paused': '已暂停',
     'logs.logsCleared': '日志已清空',
+    'logs.loadFailed': '加载日志失败',
   },
 };
 

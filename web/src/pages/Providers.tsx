@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { listProviders, createProvider, updateProvider, deleteProvider } from '../api/client';
 import type { Provider } from '../api/client';
 import { GearIcon, CheckIcon, CloseIcon } from '../components/Icons';
@@ -26,23 +26,29 @@ export const Providers: React.FC = () => {
   const { t } = useI18n();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProviderForm>({ ...emptyForm });
   const [submitting, setSubmitting] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       setProviders(await listProviders());
-    } catch {
-      showToast(t('providers.loadFailed'), 'error');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : t('providers.loadFailed');
+      setLoadError(message);
+      setProviders([]);
+      showToast(message, 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -65,6 +71,9 @@ export const Providers: React.FC = () => {
     setSubmitting(true);
     try {
       const params = JSON.parse(form.params || '{}');
+      if (!params || Array.isArray(params) || typeof params !== 'object') {
+        throw new Error(t('providers.invalidParams'));
+      }
       if (editingId) {
         await updateProvider(editingId, { name: form.name, type: form.type, params });
         showToast(t('providers.providerUpdated'), 'success');
@@ -118,6 +127,11 @@ export const Providers: React.FC = () => {
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
+      ) : loadError ? (
+        <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--accent-red)' }}>
+          <div style={{ marginBottom: 'var(--space-3)' }}>{t('providers.loadFailed')}: {loadError}</div>
+          <button className="btn" onClick={load}>{t('common.retry')}</button>
+        </div>
       ) : providers.length === 0 ? (
         <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>
           {t('providers.noProviders')}
@@ -125,7 +139,7 @@ export const Providers: React.FC = () => {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {providers.map((p) => (
-            <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)' }}>
+            <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)', flexWrap: 'wrap' }}>
               <GearIcon size={20} color={p.configured ? 'var(--accent-green)' : 'var(--text-tertiary)'} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>{p.name}</div>

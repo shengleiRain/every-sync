@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { listLogs } from '../api/client';
-import type { LogEntry } from '../api/client';
+import type { LogEntry, WSEvent } from '../api/client';
 import { showToast } from '../components/Toast';
 import { useI18n } from '../i18n';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 const levelColors: Record<string, string> = {
   debug: 'var(--text-tertiary)',
@@ -22,22 +23,44 @@ export const Logs: React.FC = () => {
   const { t } = useI18n();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [level, setLevel] = useState<string>('');
   const [search, setSearch] = useState('');
   const [paused, setPaused] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  const appendLogEvent = useCallback((event: WSEvent) => {
+    if (event.type !== 'log') return;
+    setLogs((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `ws-${event.timestamp}-${prev.length}`,
+          timestamp: event.timestamp || new Date().toISOString(),
+          level: event.level,
+          message: event.message,
+          pair_id: event.pair_id,
+        },
+      ];
+      return next.slice(-500);
+    });
+  }, []);
+
+  useWebSocket({ onEvent: appendLogEvent });
+
   const loadInitial = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const data = await listLogs(undefined, level || undefined);
+      const data = await listLogs();
       setLogs(data);
-    } catch {
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : t('logs.loadFailed'));
       setLogs([]);
     } finally {
       setLoading(false);
     }
-  }, [level]);
+  }, [t]);
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
 
@@ -117,6 +140,11 @@ export const Logs: React.FC = () => {
       >
         {loading ? (
           <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-secondary)' }}>{t('common.loading')}</div>
+        ) : loadError ? (
+          <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--accent-red)' }}>
+            <div style={{ marginBottom: 'var(--space-3)' }}>{t('logs.loadFailed')}: {loadError}</div>
+            <button className="btn" onClick={loadInitial}>{t('common.retry')}</button>
+          </div>
         ) : filteredLogs.length === 0 ? (
           <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('logs.noEntries')}</div>
         ) : (
