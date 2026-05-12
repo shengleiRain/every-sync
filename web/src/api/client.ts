@@ -164,6 +164,32 @@ export async function triggerSync(pairId: string): Promise<void> {
   await fetchJSON(`/pairs/${pairId}/sync`, { method: 'POST' });
 }
 
+export async function syncAll(): Promise<void> {
+  await fetchJSON('/sync', { method: 'POST', body: JSON.stringify({}) });
+}
+
+export async function createPair(data: {
+  name: string;
+  local_path: string;
+  remote_path: string;
+  provider?: string;
+  mode?: string;
+  direction?: string;
+  conflict_strategy?: string;
+  include_patterns?: string;
+  exclude_patterns?: string;
+}): Promise<SyncPair> {
+  return fetchJSON<SyncPair>('/pairs', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updatePair(id: string, data: Record<string, unknown>): Promise<SyncPair> {
+  return fetchJSON<SyncPair>(`/pairs/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deletePair(id: string): Promise<void> {
+  await fetchJSON(`/pairs/${id}`, { method: 'DELETE' });
+}
+
 export async function listConflicts(pairId?: string): Promise<ConflictEntry[]> {
   const query = pairId ? `?pair_id=${pairId}` : '';
   return fetchJSON<ConflictEntry[]>(`/conflicts${query}`);
@@ -194,6 +220,22 @@ export async function listLogs(pairId?: string, level?: string, limit: number = 
 
 export async function listProviders(): Promise<Provider[]> {
   return fetchJSON<Provider[]>('/providers');
+}
+
+export async function createProvider(data: {
+  name: string;
+  type: string;
+  params?: Record<string, string>;
+}): Promise<Provider> {
+  return fetchJSON<Provider>('/providers', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateProvider(id: string, data: Record<string, unknown>): Promise<Provider> {
+  return fetchJSON<Provider>(`/providers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+  await fetchJSON(`/providers/${id}`, { method: 'DELETE' });
 }
 
 export async function materializeFile(pairId: string, path: string): Promise<void> {
