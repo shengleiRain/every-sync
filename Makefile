@@ -1,4 +1,4 @@
-.PHONY: build run test clean install
+.PHONY: build run test clean install web-build web-deps
 
 BINARY=every-sync
 VERSION?=dev
@@ -6,7 +6,15 @@ BUILD_DIR=./bin
 GO=go
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-build:
+web-deps:
+	cd web && npm install
+
+web-build: web-deps
+	cd web && npm run build
+	rm -rf internal/server/static/*
+	cp -r web/dist/* internal/server/static/
+
+build: web-build
 	$(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) ./cmd/every-sync
 
 run: build
