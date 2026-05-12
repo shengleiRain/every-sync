@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getDashboardStats, listPairs, triggerSync } from '../api/client';
+import { getDashboardStats, listPairs, triggerSync, syncAll } from '../api/client';
+import { showToast } from '../components/Toast';
 import type { DashboardStats, SyncPair } from '../api/client';
 import { StatusIcon } from '../components/StatusIcon';
 import { SyncIcon, UploadIcon, DownloadIcon, WarningIcon, PlayIcon } from '../components/Icons';
@@ -64,6 +65,15 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleSyncAll = async () => {
+    try {
+      await syncAll();
+      showToast('Sync triggered for all pairs', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Sync failed', 'error');
+    }
+  };
+
   if (loading) {
     return (
       <PageWrapper>
@@ -79,7 +89,20 @@ export const Dashboard: React.FC = () => {
 
   return (
     <PageWrapper>
-      <PageHeader title="Dashboard" subtitle="Overview of your sync engine" />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-6)' }}>
+        <div>
+          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Dashboard</h1>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>Overview of your sync engine</p>
+        </div>
+        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <button className="btn btn-primary" onClick={handleSyncAll} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <SyncIcon size={15} color="#fff" /> Sync All
+          </button>
+          <button className="btn" onClick={() => window.location.reload()}>
+            Refresh
+          </button>
+        </div>
+      </div>
 
       {/* Metric cards row */}
       <div style={styles.cardRow}>
