@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,6 +120,33 @@ func runPairSync(t *testing.T, eng *Engine, pairID int64, direction string) {
 	eng.Drain(5 * time.Second)
 }
 
+func waitForEventType(t *testing.T, events <-chan Event, eventType string) Event {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Type == eventType {
+				return event
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for event %q", eventType)
+		}
+	}
+}
+
+type putFileProgressProvider struct {
+	provider.Provider
+	check func()
+}
+
+func (p *putFileProgressProvider) PutFile(ctx context.Context, filePath string, reader io.Reader, meta *provider.FileMeta) error {
+	if p.check != nil {
+		p.check()
+	}
+	return p.Provider.PutFile(ctx, filePath, reader, meta)
+}
+
 func TestEngineBidirectionalSecondSyncDoesNotDeleteSyncedFile(t *testing.T) {
 	s := newTestStore(t)
 	localDir := t.TempDir()
@@ -144,6 +173,121 @@ func TestEngineBidirectionalSecondSyncDoesNotDeleteSyncedFile(t *testing.T) {
 	runPairSync(t, eng, pair.ID, "")
 	assertFileContent(t, localDir, "a.txt", "keep-me")
 	assertFileContent(t, remoteDir, "a.txt", "keep-me")
+}
+
+func TestEngineNoTaskSyncClearsProgressSnapshot(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "done.txt", "already-synced")
+
+	pair := &store.SyncPair{
+		Name:       "no-task-progress",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "mirror",
+		Direction:  "up",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "")
+	runPairSync(t, eng, pair.ID, "")
+
+	if got := eng.progress.Snapshot(pair.ID); got != nil {
+		t.Fatalf("progress snapshot after no-task sync = %+v, want nil", got)
+	}
+}
+
+func TestEnginePermanentFailureDoesNotBroadcastSyncCompleted(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	pair := &store.SyncPair{Name: "failed-progress", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "up", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	eventsCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := eng.Subscribe(eventsCtx)
+
+	const cycleID uint64 = 99
+	atomic.StoreInt64(&eng.pending, 1)
+	eng.progress.StartSync(pair.ID, pair.Name, string(DirectionUp), 1)
+	eng.progress.SetTotals(pair.ID, 1, 1)
+	eng.progress.StartTask(pair.ID, string(TaskUpload), "/will-fail.txt", 10)
+	eng.mu.Lock()
+	eng.pairCycle[pair.ID] = cycleID
+	eng.pairPending[pair.ID] = 1
+	eng.pairDirection[pair.ID] = string(DirectionUp)
+	eng.mu.Unlock()
+
+	eng.results <- TaskResult{
+		Task:  SyncTask{Type: TaskUpload, PairID: pair.ID, Path: "/will-fail.txt", CycleID: cycleID},
+		Error: errors.New("upload failed"),
+	}
+
+	waitForEventType(t, events, "task_failed")
+
+	select {
+	case event := <-events:
+		if event.Type == "sync_completed" {
+			t.Fatalf("received sync_completed after permanent failure: %+v", event)
+		}
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	got := eng.progress.Snapshot(pair.ID)
+	if got == nil {
+		t.Fatal("progress snapshot after permanent failure = nil, want failed snapshot")
+	}
+	if got.Status != "failed" {
+		t.Fatalf("progress status = %q, want failed", got.Status)
+	}
+}
+
+func TestEngineSmallUploadSetsActiveFileProgress(t *testing.T) {
+	s := newTestStore(t)
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "small.txt", "small file")
+
+	pair := &store.SyncPair{Name: "small-progress", LocalPath: localDir, RemotePath: remoteDir, Provider: "local", Mode: "mirror", Direction: "up", Enabled: true}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := New(s, Config{QueueSize: 10, ChunkThreshold: 16 * 1024 * 1024, ChunkSize: 1024})
+	localProvider := newTestLocalProvider(t, pair.LocalPath)
+	remoteProvider := newTestLocalProvider(t, pair.RemotePath)
+	var sawActive bool
+	eng.RegisterPair(pair, localProvider, &putFileProgressProvider{
+		Provider: remoteProvider,
+		check: func() {
+			snap := eng.progress.Snapshot(pair.ID)
+			if snap == nil || snap.ActiveFile == nil {
+				return
+			}
+			sawActive = snap.ActiveFile.Path == "/small.txt" &&
+				snap.ActiveFile.TaskType == string(TaskUpload) &&
+				snap.ActiveFile.BytesTotal == int64(len("small file"))
+		},
+	})
+	eng.progress.StartSync(pair.ID, pair.Name, string(DirectionUp), 1)
+	eng.progress.SetTotals(pair.ID, 1, 1)
+
+	if err := eng.executeTask(context.Background(), SyncTask{Type: TaskUpload, PairID: pair.ID, Path: "/small.txt"}); err != nil {
+		t.Fatalf("execute upload: %v", err)
+	}
+	if !sawActive {
+		t.Fatal("small upload did not expose active file progress before transfer")
+	}
 }
 
 func TestScanRecursiveReturnsErrorWhenDirectoryListFails(t *testing.T) {

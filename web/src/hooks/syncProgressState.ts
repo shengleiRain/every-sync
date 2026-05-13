@@ -102,17 +102,21 @@ export function applyProgressEvent(map: ProgressMap, event: WSEvent): boolean {
 
   if (event.type === 'task_started') {
     const path = String(anyEvent.path ?? '');
+    const bytesTransferred = Number(anyEvent.bytes_transferred ?? 0);
+    const bytesTotal = Number(anyEvent.bytes_total ?? 0);
     entry.status = 'syncing';
     entry.currentFile = path;
     entry.activeFile = {
       path,
       taskType: String(anyEvent.task_type ?? ''),
-      bytesTransferred: 0,
-      bytesTotal: 0,
-      percent: 0,
+      bytesTransferred,
+      bytesTotal,
+      percent: bytesTotal > 0 ? (bytesTransferred / bytesTotal) * 100 : 0,
       startedAt: now,
       updatedAt: now,
     };
+    entry.bytesTransferred = bytesTransferred;
+    entry.bytesTotal = bytesTotal;
     return true;
   }
 

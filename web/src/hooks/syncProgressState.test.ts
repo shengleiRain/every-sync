@@ -73,4 +73,22 @@ describe('sync progress state', () => {
     expect(entry.activeFile?.bytesTransferred).toBe(512);
     expect(entry.activeFile?.percent).toBe(50);
   });
+
+  it('hydrates active file byte total from task started events', () => {
+    const entry = createEmptyProgress('7');
+    const map = new Map([['7', entry]]);
+
+    applyProgressEvent(map, {
+      type: 'task_started',
+      pair_id: '7',
+      task_type: 'upload',
+      path: '/docs/small.txt',
+      bytes_total: 42,
+    } as WSEvent);
+
+    expect(entry.currentFile).toBe('/docs/small.txt');
+    expect(entry.activeFile?.bytesTransferred).toBe(0);
+    expect(entry.activeFile?.bytesTotal).toBe(42);
+    expect(entry.bytesTotal).toBe(42);
+  });
 });

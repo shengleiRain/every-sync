@@ -120,20 +120,20 @@ func DefaultConfig() Config {
 }
 
 type Event struct {
-	Type            string    `json:"type"`
-	Time            time.Time `json:"time"`
-	PairID          int64     `json:"pair_id,omitempty"`
-	PairName        string    `json:"pair_name,omitempty"`
-	TaskType        string    `json:"task_type,omitempty"`
-	Path            string    `json:"path,omitempty"`
-	Pending         int64     `json:"pending"`
-	Error           string    `json:"error,omitempty"`
-	Message         string    `json:"message,omitempty"`
-	Direction       string    `json:"direction,omitempty"`
-	BytesTransferred int64    `json:"bytes_transferred,omitempty"`
-	BytesTotal      int64     `json:"bytes_total,omitempty"`
-	FilesSynced     int       `json:"files_synced,omitempty"`
-	FilesTotal      int       `json:"files_total,omitempty"`
+	Type             string    `json:"type"`
+	Time             time.Time `json:"time"`
+	PairID           int64     `json:"pair_id,omitempty"`
+	PairName         string    `json:"pair_name,omitempty"`
+	TaskType         string    `json:"task_type,omitempty"`
+	Path             string    `json:"path,omitempty"`
+	Pending          int64     `json:"pending"`
+	Error            string    `json:"error,omitempty"`
+	Message          string    `json:"message,omitempty"`
+	Direction        string    `json:"direction,omitempty"`
+	BytesTransferred int64     `json:"bytes_transferred,omitempty"`
+	BytesTotal       int64     `json:"bytes_total,omitempty"`
+	FilesSynced      int       `json:"files_synced,omitempty"`
+	FilesTotal       int       `json:"files_total,omitempty"`
 }
 
 type Status struct {
@@ -195,13 +195,14 @@ type Engine struct {
 	subs   map[chan Event]struct{}
 
 	// Per-pair file sync progress tracking for current sync cycle.
-	pairFilesSynced map[int64]int // pairID -> count of synced files in current sync cycle
-	pairFilesTotal  map[int64]int // pairID -> total files to sync
-	pairPending     map[int64]int64 // pairID -> number of pending tasks for this pair's current sync
+	pairFilesSynced map[int64]int    // pairID -> count of synced files in current sync cycle
+	pairFilesTotal  map[int64]int    // pairID -> total files to sync
+	pairPending     map[int64]int64  // pairID -> number of pending tasks for this pair's current sync
 	pairDirection   map[int64]string // pairID -> direction of current sync
 	pairCycle       map[int64]uint64 // pairID -> current sync cycle ID
+	pairFailed      map[int64]bool   // pairID -> whether current sync cycle had a permanent failure
 	pairSyncing     map[int64]bool   // pairID -> whether a sync is in progress for this pair
-	syncCycle       uint64 // monotonically increasing sync cycle counter
+	syncCycle       uint64           // monotonically increasing sync cycle counter
 
 	progress *ProgressTracker
 }
@@ -224,8 +225,9 @@ func New(s *store.Store, cfg Config) *Engine {
 		pairPending:     make(map[int64]int64),
 		pairDirection:   make(map[int64]string),
 		pairCycle:       make(map[int64]uint64),
+		pairFailed:      make(map[int64]bool),
 		pairSyncing:     make(map[int64]bool),
-		progress:       NewProgressTracker(),
+		progress:        NewProgressTracker(),
 	}
 }
 
@@ -605,6 +607,7 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 	e.syncCycle++
 	cycleID := e.syncCycle
 	e.pairCycle[pair.ID] = cycleID
+	e.pairFailed[pair.ID] = false
 	e.mu.Unlock()
 
 	e.progress.StartSync(pair.ID, pair.Name, string(dir), 0)
@@ -827,9 +830,9 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	e.mu.Lock()
 	e.pairFilesTotal[pair.ID] = uploadCount + downloadCount
 	taskCount := int64(len(tasks))
-		if taskCount > 0 {
-			e.pairPending[pair.ID] = taskCount
-		}
+	if taskCount > 0 {
+		e.pairPending[pair.ID] = taskCount
+	}
 	e.mu.Unlock()
 
 	e.progress.SetTotals(pair.ID, uploadCount+downloadCount, taskCount)
@@ -852,6 +855,7 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 
 	// Broadcast sync_completed immediately if no tasks were generated.
 	if len(tasks) == 0 {
+		e.progress.FinishSync(pair.ID)
 		e.broadcast(Event{Type: "sync_completed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), FilesSynced: 0, FilesTotal: 0})
 	}
 
@@ -1812,6 +1816,7 @@ func (e *Engine) doUpload(ctx context.Context, pair *store.SyncPair, local, remo
 		return fmt.Errorf("read local file: %w", err)
 	}
 	defer reader.Close()
+	e.startTaskProgress(pair, filePath, TaskUpload, meta.Size)
 	transferReader := e.transferReader(reader, meta.Size, e.config.UploadLimit, pair, filePath, TaskUpload)
 
 	dir := path.Dir(filePath)
@@ -1882,6 +1887,7 @@ func (e *Engine) doDownload(ctx context.Context, pair *store.SyncPair, local, re
 		return fmt.Errorf("read remote file: %w", err)
 	}
 	defer reader.Close()
+	e.startTaskProgress(pair, filePath, TaskDownload, meta.Size)
 	transferReader := e.transferReader(reader, meta.Size, e.config.DownloadLimit, pair, filePath, TaskDownload)
 
 	dir := path.Dir(filePath)
@@ -1972,6 +1978,7 @@ func (e *Engine) doResumableTransfer(ctx context.Context, pair *store.SyncPair, 
 	}
 	defer reader.Close()
 
+	e.startTaskProgress(pair, filePath, taskType, sourceMeta.Size)
 	transferReader := e.transferReader(reader, sourceMeta.Size-offset, bytesPerSecond, pair, filePath, taskType)
 	if err := resumeWriter.PutFileResume(ctx, partialPath, transferReader, sourceMeta, offset); err != nil {
 		return nil, fmt.Errorf("write partial file: %w", err)
@@ -2179,6 +2186,8 @@ func (e *Engine) processResults() {
 				return
 			}
 			pairID := result.Task.PairID
+			terminal := false
+			permanentFailure := false
 
 			if result.Error != nil {
 				if result.Task.Retries < e.config.RetryMax {
@@ -2192,12 +2201,15 @@ func (e *Engine) processResults() {
 						}
 					})
 				} else {
+					terminal = true
+					permanentFailure = true
 					atomic.AddInt64(&e.pending, -1)
 					logger.L.Error().Err(result.Error).Str("path", result.Task.Path).Str("type", string(result.Task.Type)).Msg("task permanently failed")
 					e.progress.FailTask(pairID, string(result.Task.Type), result.Task.Path, result.Error.Error())
 					e.broadcast(Event{Type: "task_failed", PairID: pairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Error: result.Error.Error(), Pending: atomic.LoadInt64(&e.pending)})
 				}
 			} else {
+				terminal = true
 				atomic.AddInt64(&e.pending, -1)
 				e.progress.CompleteTask(pairID, string(result.Task.Type), result.Task.Path)
 				// Track synced file count for upload/download tasks.
@@ -2215,26 +2227,31 @@ func (e *Engine) processResults() {
 
 			// Decrement per-pair pending count and broadcast sync_completed when all tasks done.
 			// Only count tasks from the current sync cycle.
-			e.mu.Lock()
-			currentCycle := e.pairCycle[pairID]
-			if result.Task.CycleID == currentCycle && e.pairPending[pairID] > 0 {
-				e.pairPending[pairID]--
-				if e.pairPending[pairID] == 0 {
-					pairName := ""
-					direction := e.pairDirection[pairID]
-					if pair, ok := e.pairs[pairID]; ok {
-						pairName = pair.Name
+			if terminal {
+				e.mu.Lock()
+				currentCycle := e.pairCycle[pairID]
+				if result.Task.CycleID == currentCycle && e.pairPending[pairID] > 0 {
+					if permanentFailure {
+						e.pairFailed[pairID] = true
 					}
-					synced := e.pairFilesSynced[pairID]
-					total := e.pairFilesTotal[pairID]
-					e.mu.Unlock()
-					e.progress.FinishSync(pairID)
-					e.broadcast(Event{Type: "sync_completed", PairID: pairID, PairName: pairName, Direction: direction, FilesSynced: synced, FilesTotal: total})
+					e.pairPending[pairID]--
+					if e.pairPending[pairID] == 0 && !e.pairFailed[pairID] {
+						pairName := ""
+						direction := e.pairDirection[pairID]
+						if pair, ok := e.pairs[pairID]; ok {
+							pairName = pair.Name
+						}
+						synced := e.pairFilesSynced[pairID]
+						total := e.pairFilesTotal[pairID]
+						e.mu.Unlock()
+						e.progress.FinishSync(pairID)
+						e.broadcast(Event{Type: "sync_completed", PairID: pairID, PairName: pairName, Direction: direction, FilesSynced: synced, FilesTotal: total})
+					} else {
+						e.mu.Unlock()
+					}
 				} else {
 					e.mu.Unlock()
 				}
-			} else {
-				e.mu.Unlock()
 			}
 		}
 	}
@@ -2439,6 +2456,18 @@ func (e *Engine) sendEmail(event Event) {
 	if err := smtp.SendMail(e.config.EmailSMTPAddr, auth, e.config.EmailFrom, e.config.EmailTo, msg); err != nil {
 		logger.L.Warn().Err(err).Msg("send email notification")
 	}
+}
+
+func (e *Engine) startTaskProgress(pair *store.SyncPair, filePath string, taskType TaskType, bytesTotal int64) {
+	e.progress.StartTask(pair.ID, string(taskType), filePath, bytesTotal)
+	e.broadcast(Event{
+		Type:       "task_started",
+		PairID:     pair.ID,
+		PairName:   pair.Name,
+		TaskType:   string(taskType),
+		Path:       filePath,
+		BytesTotal: bytesTotal,
+	})
 }
 
 func (e *Engine) transferReader(reader io.Reader, size, bytesPerSecond int64, pair *store.SyncPair, filePath string, taskType TaskType) io.Reader {

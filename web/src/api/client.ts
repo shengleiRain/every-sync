@@ -157,6 +157,8 @@ export interface WSEngineEvent {
   error?: string;
   message?: string;
   direction?: string;
+  bytes_transferred?: number;
+  bytes_total?: number;
 }
 
 export type WSEvent = WSProgressEvent | WSStatusEvent | WSConflictEvent | WSLogEvent | WSEngineEvent;
