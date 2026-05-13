@@ -17,6 +17,7 @@ import {
 import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
 import { showToast } from '../components/Toast';
 import { useSyncProgress } from '../hooks/useSyncProgress';
+import { ProgressBar } from '../components/ProgressBar';
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '—';
@@ -383,6 +384,7 @@ export const FileBrowser: React.FC = () => {
             onSelectionToggle={handleFolderSelection}
             selected={entry.type === 'folder' && (selectedFolders.has(entry.path) || Boolean(entry.selected))}
             isFileSyncing={syncProgress?.status === 'syncing' && syncProgress.currentFile === entry.path}
+            activeFile={syncProgress?.activeFile}
             t={t}
           />
         ))}
@@ -428,12 +430,14 @@ interface FileRowProps {
   onSelectionToggle: (entry: FileEntry, selected: boolean) => void;
   selected: boolean;
   isFileSyncing: boolean;
+  activeFile?: { path: string; bytesTransferred: number; bytesTotal: number; percent: number; taskType: string };
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, onSelectionToggle, selected, isFileSyncing, t }) => {
+const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, onSelectionToggle, selected, isFileSyncing, activeFile, t }) => {
   const isFolder = entry.type === 'folder';
   const [hovered, setHovered] = useState(false);
+  const fileProgressActive = Boolean(activeFile && activeFile.path === entry.path);
 
   return (
     <div
@@ -473,17 +477,27 @@ const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, 
         <FileIcon size={18} color="var(--text-secondary)" />
       )}
 
-      <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', overflow: 'hidden' }}>
-        <span style={{ fontWeight: isFolder ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {entry.name}
-        </span>
-        {isFolder && entry.children_count != null && (
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexShrink: 0 }}>
-            ({entry.children_count})
+      <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', overflow: 'hidden' }}>
+          <span style={{ fontWeight: isFolder ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {entry.name}
           </span>
+          {isFolder && entry.children_count != null && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexShrink: 0 }}>
+              ({entry.children_count})
+            </span>
+          )}
+          {isFolder && <ChevronRightIcon size={14} color="var(--text-tertiary)" />}
+        </span>
+        {fileProgressActive && activeFile && (
+          <div style={{ marginTop: '4px', display: 'grid', gap: '3px' }}>
+            <ProgressBar percent={activeFile.percent} />
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-blue)' }}>
+              {activeFile.taskType} · {formatSize(activeFile.bytesTransferred)} / {formatSize(activeFile.bytesTotal)} · {Math.round(activeFile.percent)}%
+            </span>
+          </div>
         )}
-        {isFolder && <ChevronRightIcon size={14} color="var(--text-tertiary)" />}
-      </span>
+      </div>
 
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
         {isFolder ? `${entry.children_count ?? 0} ${t('files.items')}` : formatSize(entry.size)}

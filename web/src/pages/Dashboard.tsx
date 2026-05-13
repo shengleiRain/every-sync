@@ -6,6 +6,7 @@ import { StatusIcon } from '../components/StatusIcon';
 import { SyncIcon, UploadIcon, DownloadIcon, WarningIcon, PlayIcon } from '../components/Icons';
 import { getPairModeLabelKey, getSyncStatusLabelKey, useI18n } from '../i18n';
 import { useSyncProgress } from '../hooks/useSyncProgress';
+import { PairProgressInline } from '../components/PairProgress';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -23,25 +24,6 @@ function formatRelative(dateStr: string | undefined, t: (key: string, params?: R
   if (diff < 86400000) return t('time.hoursAgo', { n: Math.floor(diff / 3600000) });
   return t('time.daysAgo', { n: Math.floor(diff / 86400000) });
 }
-
-// A thin progress bar for showing sync progress
-const ProgressBar: React.FC<{ progress: number; height?: number }> = ({ progress, height = 3 }) => (
-  <div style={{
-    width: '100%',
-    height: `${height}px`,
-    background: 'var(--border-default)',
-    borderRadius: '2px',
-    overflow: 'hidden',
-  }}>
-    <div style={{
-      width: `${Math.min(100, Math.max(0, progress))}%`,
-      height: '100%',
-      background: 'var(--accent-green)',
-      borderRadius: '2px',
-      transition: 'width 0.3s ease',
-    }} />
-  </div>
-);
 
 export const Dashboard: React.FC = () => {
   const { t } = useI18n();
@@ -212,15 +194,7 @@ export const Dashboard: React.FC = () => {
                       <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
                         {pair.local_path} &rarr; {pair.remote_path}
                       </span>
-                      {isActivelySyncing && (
-                        <div style={{ marginTop: '4px' }}>
-                          <ProgressBar progress={progress.filesTotal > 0 ? (progress.filesSynced / progress.filesTotal) * 100 : 0} />
-                          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                            {progress.currentFile && `${t('dashboard.currentFile')}: ${progress.currentFile.length > 40 ? '...' + progress.currentFile.slice(-37) : progress.currentFile}`}
-                            {progress.filesTotal > 0 && ` (${progress.filesSynced}/${progress.filesTotal})`}
-                          </div>
-                        </div>
-                      )}
+                      <PairProgressInline progress={progress} t={t} />
                     </td>
                     <td style={styles.td}>
                       <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
