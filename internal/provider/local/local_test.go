@@ -233,6 +233,32 @@ func TestLocalProvider_ListDir(t *testing.T) {
 	}
 }
 
+func TestLocalProvider_ListDirSkipsZoneIdentifierSidecars(t *testing.T) {
+	p, root := setupTestProvider(t)
+	ctx := context.Background()
+
+	if err := os.WriteFile(filepath.Join(root, "app.exe:Zone.Identifier"), []byte("[ZoneTransfer]"), 0644); err != nil {
+		t.Fatalf("write zone identifier: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "normal.txt"), []byte("keep"), 0644); err != nil {
+		t.Fatalf("write normal file: %v", err)
+	}
+
+	entries, err := p.ListDir(ctx, "/")
+	if err != nil {
+		t.Fatalf("ListDir: %v", err)
+	}
+
+	for _, entry := range entries {
+		if strings.Contains(entry.Path, ":Zone.Identifier") {
+			t.Fatalf("ListDir exposed Zone.Identifier sidecar: %s", entry.Path)
+		}
+	}
+	if len(entries) != 1 || filepath.Base(entries[0].Path) != "normal.txt" {
+		t.Fatalf("entries = %#v, want only normal.txt", entries)
+	}
+}
+
 func TestLocalProvider_Stat(t *testing.T) {
 	p, _ := setupTestProvider(t)
 	ctx := context.Background()

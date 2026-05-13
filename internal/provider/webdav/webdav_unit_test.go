@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,6 +85,90 @@ func TestWebDAVProviderInitAcceptsTimeoutParam(t *testing.T) {
 	err := p.PutFile(context.Background(), "/slow.txt", strings.NewReader("slow"), &provider.FileMeta{Size: 4})
 	if err == nil {
 		t.Fatal("PutFile unexpectedly succeeded despite configured timeout")
+	}
+}
+
+func TestPutFileSerializesConcurrentParentDirectoryCreation(t *testing.T) {
+	firstStarted := make(chan struct{})
+	var firstStartedOnce sync.Once
+	var active int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "MKCOL":
+			if strings.TrimSuffix(r.URL.Path, "/") == "/nested/dir" {
+				firstStartedOnce.Do(func() { close(firstStarted) })
+				if atomic.AddInt32(&active, 1) > 1 {
+					atomic.AddInt32(&active, -1)
+					w.WriteHeader(http.StatusLocked)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+				atomic.AddInt32(&active, -1)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case http.MethodPut:
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	p := &WebDAVProvider{client: gowebdav.NewClient(server.URL, "", "")}
+	meta := &provider.FileMeta{Size: int64(len("content"))}
+
+	errs := make(chan error, 2)
+	go func() {
+		errs <- p.PutFile(context.Background(), "/nested/dir/one.txt", strings.NewReader("content"), meta)
+	}()
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first MKCOL did not start")
+	}
+	go func() {
+		errs <- p.PutFile(context.Background(), "/nested/dir/two.txt", strings.NewReader("content"), meta)
+	}()
+
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("PutFile %d: %v", i+1, err)
+		}
+	}
+}
+
+func TestPutFileRetriesLockedParentDirectoryCreation(t *testing.T) {
+	var mkdirs int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "MKCOL":
+			if strings.TrimSuffix(r.URL.Path, "/") == "/locked/dir" {
+				mkdirs++
+				if mkdirs == 1 {
+					w.WriteHeader(http.StatusLocked)
+					return
+				}
+			}
+			w.WriteHeader(http.StatusCreated)
+		case http.MethodPut:
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	p := &WebDAVProvider{client: gowebdav.NewClient(server.URL, "", "")}
+	meta := &provider.FileMeta{Size: int64(len("content"))}
+
+	if err := p.PutFile(context.Background(), "/locked/dir/file.txt", strings.NewReader("content"), meta); err != nil {
+		t.Fatalf("PutFile: %v", err)
+	}
+	if mkdirs != 2 {
+		t.Fatalf("MKCOL /locked/dir count = %d, want 2", mkdirs)
 	}
 }
 

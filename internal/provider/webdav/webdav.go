@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rain/every-sync/internal/provider"
@@ -21,8 +22,9 @@ func init() {
 }
 
 type WebDAVProvider struct {
-	client *gowebdav.Client
-	prefix string
+	client         *gowebdav.Client
+	prefix         string
+	parentCreateMu sync.Mutex
 }
 
 func (w *WebDAVProvider) Init(_ context.Context, config provider.Config) error {
@@ -56,8 +58,8 @@ func (w *WebDAVProvider) Init(_ context.Context, config provider.Config) error {
 
 	w.client = client
 	if w.prefix != "" {
-		if err := w.client.MkdirAll(w.prefix, 0755); err != nil {
-			return fmt.Errorf("webdav provider: create prefix %s: %w", w.prefix, w.mapError(err))
+		if err := w.mkdirAllLocked(w.prefix); err != nil {
+			return fmt.Errorf("webdav provider: create prefix %s: %w", w.prefix, err)
 		}
 	}
 	return nil
@@ -116,19 +118,20 @@ func (w *WebDAVProvider) GetFileRange(_ context.Context, remotePath string, offs
 func (w *WebDAVProvider) PutFile(_ context.Context, remotePath string, reader io.Reader, meta *provider.FileMeta) error {
 	fullPath := w.resolve(remotePath)
 
-	// Ensure parent directory exists
-	dir := path.Dir(fullPath)
-	if dir != "/" && dir != "." {
-		if err := w.client.MkdirAll(dir, 0755); err != nil {
-			return w.mapError(err)
-		}
-	}
-
 	var err error
-	if meta != nil && meta.Size >= 0 {
-		err = w.client.WriteStreamWithLength(fullPath, reader, meta.Size, 0644)
-	} else {
-		err = w.client.WriteStream(fullPath, reader, 0644)
+	for attempt := 0; attempt < 3; attempt++ {
+		lockedReader := w.lockParentCreation(reader)
+		if meta != nil && meta.Size >= 0 {
+			err = w.client.WriteStreamWithLength(fullPath, lockedReader, meta.Size, 0644)
+		} else {
+			err = w.client.WriteStream(fullPath, lockedReader, 0644)
+		}
+		lockedReader.Release()
+		if !lockedReader.Started() && hasWebDAVStatus(err, 423) && attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+			continue
+		}
+		break
 	}
 	if err != nil {
 		mapped := w.mapError(err)
@@ -139,6 +142,40 @@ func (w *WebDAVProvider) PutFile(_ context.Context, remotePath string, reader io
 	}
 
 	return nil
+}
+
+type parentCreateLockReader struct {
+	reader  io.Reader
+	release func()
+	once    sync.Once
+	mu      sync.Mutex
+	started bool
+}
+
+func (w *WebDAVProvider) lockParentCreation(reader io.Reader) *parentCreateLockReader {
+	w.parentCreateMu.Lock()
+	return &parentCreateLockReader{
+		reader:  reader,
+		release: w.parentCreateMu.Unlock,
+	}
+}
+
+func (r *parentCreateLockReader) Read(p []byte) (int, error) {
+	r.mu.Lock()
+	r.started = true
+	r.mu.Unlock()
+	r.Release()
+	return r.reader.Read(p)
+}
+
+func (r *parentCreateLockReader) Release() {
+	r.once.Do(r.release)
+}
+
+func (r *parentCreateLockReader) Started() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.started
 }
 
 func newClient(endpoint, username, password, _ string) *gowebdav.Client {
@@ -167,8 +204,8 @@ func (w *WebDAVProvider) MoveFile(_ context.Context, src, dst string) error {
 
 	// Ensure target directory exists
 	dir := path.Dir(dstPath)
-	if err := w.client.MkdirAll(dir, 0755); err != nil {
-		return w.mapError(err)
+	if err := w.mkdirAllLocked(dir); err != nil {
+		return err
 	}
 
 	if err := w.client.Rename(srcPath, dstPath, true); err != nil {
@@ -201,10 +238,29 @@ func (w *WebDAVProvider) ListDir(_ context.Context, remotePath string) ([]*provi
 
 func (w *WebDAVProvider) CreateDir(_ context.Context, remotePath string) error {
 	fullPath := w.resolve(remotePath)
-	if err := w.client.MkdirAll(fullPath, 0755); err != nil {
-		return w.mapError(err)
+	if err := w.mkdirAllLocked(fullPath); err != nil {
+		return err
 	}
 	return nil
+}
+
+func (w *WebDAVProvider) mkdirAllLocked(dir string) error {
+	cleaned := path.Clean(dir)
+	if cleaned == "/" || cleaned == "." {
+		return nil
+	}
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		w.parentCreateMu.Lock()
+		err = w.client.MkdirAll(cleaned, 0755)
+		w.parentCreateMu.Unlock()
+		if hasWebDAVStatus(err, 423) && attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+			continue
+		}
+		break
+	}
+	return w.mapError(err)
 }
 
 func (w *WebDAVProvider) Stat(_ context.Context, remotePath string) (*provider.FileMeta, error) {
@@ -330,4 +386,17 @@ func (w *WebDAVProvider) mapError(err error) error {
 	}
 
 	return fmt.Errorf("webdav: %w", err)
+}
+
+func hasWebDAVStatus(err error, status int) bool {
+	if err == nil {
+		return false
+	}
+	if pathErr, ok := err.(*os.PathError); ok {
+		return hasWebDAVStatus(pathErr.Err, status)
+	}
+	if statusErr, ok := err.(gowebdav.StatusError); ok {
+		return statusErr.Status == status
+	}
+	return false
 }

@@ -229,6 +229,9 @@ func (l *LocalProvider) ListDir(_ context.Context, path string) ([]*provider.Fil
 	result := make([]*provider.FileMeta, 0, len(entries))
 	for _, entry := range entries {
 		relPath := l.relative(fullPath, entry.Name())
+		if shouldSkipLocalPath(relPath) {
+			continue
+		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
@@ -287,6 +290,9 @@ func (l *LocalProvider) WatchChanges(ctx context.Context, path string) (<-chan p
 					return
 				}
 				relPath := l.relative("", event.Name)
+				if shouldSkipLocalPath(relPath) {
+					continue
+				}
 				ce := provider.ChangeEvent{
 					Path:      relPath,
 					Source:    "local",
@@ -369,6 +375,12 @@ func (l *LocalProvider) relative(base, name string) string {
 		return joined
 	}
 	return "/" + rel
+}
+
+func shouldSkipLocalPath(filePath string) bool {
+	base := filepath.Base(filepath.Clean(filePath))
+	return strings.Contains(base, ":Zone.Identifier") ||
+		strings.HasPrefix(base, "Zone.Identifier")
 }
 
 func (l *LocalProvider) fileMeta(fullPath, displayPath string) (*provider.FileMeta, error) {
