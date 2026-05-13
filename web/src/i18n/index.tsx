@@ -52,6 +52,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'sidebar.providers': 'Providers',
     'sidebar.conflicts': 'Conflicts',
     'sidebar.versions': 'Versions',
+    'sidebar.recent': 'Recent Records',
     'sidebar.logs': 'Logs',
 
     // Common
@@ -277,6 +278,22 @@ const translations: Record<Lang, Record<string, string>> = {
     'progress.transfer': 'Transfer',
     'progress.recent': 'Recent',
     'progress.noRecent': 'No recent files',
+    'progress.expandQueue': 'Show queue',
+    'progress.collapseQueue': 'Hide queue',
+    'progress.noQueuedFiles': 'No queued files',
+    'progress.viewRecent': 'View recent records',
+
+    // Recent records
+    'recent.title': 'Recent Records',
+    'recent.subtitle': 'Recently synchronized files',
+    'recent.file': 'File',
+    'recent.pair': 'Sync Pair',
+    'recent.time': 'Sync Time',
+    'recent.status': 'Status',
+    'recent.direction': 'Direction',
+    'recent.size': 'Size',
+    'recent.empty': 'No recent sync records.',
+    'recent.loadFailed': 'Failed to load recent records',
   },
 
   zh: {
@@ -294,6 +311,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'sidebar.providers': '存储提供商',
     'sidebar.conflicts': '冲突',
     'sidebar.versions': '版本历史',
+    'sidebar.recent': '最近记录',
     'sidebar.logs': '日志',
 
     // Common
@@ -519,6 +537,22 @@ const translations: Record<Lang, Record<string, string>> = {
     'progress.transfer': '传输',
     'progress.recent': '最近记录',
     'progress.noRecent': '暂无最近文件',
+    'progress.expandQueue': '展开队列',
+    'progress.collapseQueue': '收起队列',
+    'progress.noQueuedFiles': '暂无队列文件',
+    'progress.viewRecent': '查看最近记录',
+
+    // Recent records
+    'recent.title': '最近记录',
+    'recent.subtitle': '近期同步过的文件',
+    'recent.file': '文件名',
+    'recent.pair': '同步对',
+    'recent.time': '同步时间',
+    'recent.status': '同步状态',
+    'recent.direction': '同步方向',
+    'recent.size': '大小',
+    'recent.empty': '暂无最近同步记录。',
+    'recent.loadFailed': '加载最近记录失败',
   },
 };
 

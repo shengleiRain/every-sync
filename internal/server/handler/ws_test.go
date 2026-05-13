@@ -328,6 +328,7 @@ func (f *trackingFakeEngine) ListPairFiles(context.Context, int64, string, strin
 	return nil, nil
 }
 func (f *trackingFakeEngine) Progress() []syncengine.PairProgressSnapshot { return f.progress }
+func (f *trackingFakeEngine) SyncRecords(int) []syncengine.SyncRecord     { return nil }
 
 type fakeEngine struct {
 	refreshes int
@@ -359,6 +360,7 @@ func (f *fakeEngine) ListPairFiles(context.Context, int64, string, string) ([]*s
 	return nil, nil
 }
 func (f *fakeEngine) Progress() []syncengine.PairProgressSnapshot { return f.progress }
+func (f *fakeEngine) SyncRecords(int) []syncengine.SyncRecord     { return nil }
 
 func TestProgressReturnsEngineSnapshots(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "test.db"))

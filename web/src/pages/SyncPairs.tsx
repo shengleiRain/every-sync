@@ -9,7 +9,7 @@ import { Modal } from '../components/Modal';
 import { showToast } from '../components/Toast';
 import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
 import { useSyncProgress } from '../hooks/useSyncProgress';
-import { PairProgressDetail, PairProgressInline } from '../components/PairProgress';
+import { PairProgressDetail, PairProgressInline, PairSyncQueuePanel } from '../components/PairProgress';
 
 const emptyForm = {
   name: '',
@@ -209,31 +209,34 @@ export const SyncPairs: React.FC = () => {
             const isActivelySyncing = progress?.status === 'syncing';
 
             return (
-              <div key={pair.id} className="card" onClick={() => setSelectedPairId(pair.id)} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)', flexWrap: 'wrap', cursor: 'pointer' }}>
-                {isActivelySyncing ? (
-                  <SyncIcon size={20} color="var(--accent-green)" spinning />
-                ) : (
-                  <StatusIcon status={pair.status} size={20} />
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, marginBottom: '2px' }}>{pair.name}</div>
-                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                    {pair.local_path} <SyncIcon size={12} color="var(--accent-blue)" /> {pair.remote_path}
+              <div key={pair.id} className="card" onClick={() => setSelectedPairId(pair.id)} style={{ padding: 'var(--space-4) var(--space-5)', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+                  {isActivelySyncing ? (
+                    <SyncIcon size={20} color="var(--accent-green)" spinning />
+                  ) : (
+                    <StatusIcon status={pair.status} size={20} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, marginBottom: '2px' }}>{pair.name}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                      {pair.local_path} <SyncIcon size={12} color="var(--accent-blue)" /> {pair.remote_path}
+                    </div>
+                    <PairProgressInline progress={progress} t={t} />
                   </div>
-                  <PairProgressInline progress={progress} t={t} />
+                  <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
+                  <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
+                  <span className="badge badge-blue">{t(getPairDirectionLabelKey(pair.direction))}</span>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                    <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); handleSync(pair.id); }} disabled={syncingId === pair.id || isActivelySyncing} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      {syncingId === pair.id || isActivelySyncing ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}
+                      {t('dashboard.sync')}
+                    </button>
+                    <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); openEdit(pair); }} disabled={isActivelySyncing}>{t('common.edit')}</button>
+                    <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleToggle(pair); }}>{pair.enabled ? t('pairs.disable') : t('pairs.enable')}</button>
+                    <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={(e) => { e.stopPropagation(); handleDelete(pair.id); }} disabled={isActivelySyncing}>{t('common.delete')}</button>
+                  </div>
                 </div>
-                <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
-                <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
-                <span className="badge badge-blue">{t(getPairDirectionLabelKey(pair.direction))}</span>
-                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                  <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); handleSync(pair.id); }} disabled={syncingId === pair.id || isActivelySyncing} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    {syncingId === pair.id || isActivelySyncing ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}
-                    {t('dashboard.sync')}
-                  </button>
-                  <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); openEdit(pair); }} disabled={isActivelySyncing}>{t('common.edit')}</button>
-                  <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleToggle(pair); }}>{pair.enabled ? t('pairs.disable') : t('pairs.enable')}</button>
-                  <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={(e) => { e.stopPropagation(); handleDelete(pair.id); }} disabled={isActivelySyncing}>{t('common.delete')}</button>
-                </div>
+                <PairSyncQueuePanel progress={progress} t={t} />
               </div>
             );
           })}

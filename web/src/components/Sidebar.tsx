@@ -33,6 +33,7 @@ const navItems: NavItem[] = [
   { to: '/providers', labelKey: 'sidebar.providers', icon: GearIcon },
   { to: '/conflicts', labelKey: 'sidebar.conflicts', icon: WarningIcon },
   { to: '/versions', labelKey: 'sidebar.versions', icon: ClockIcon },
+  { to: '/recent', labelKey: 'sidebar.recent', icon: DocumentIcon },
   { to: '/logs', labelKey: 'sidebar.logs', icon: DocumentIcon },
 ];
 

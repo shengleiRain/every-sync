@@ -22,8 +22,8 @@ import (
 )
 
 type Handler struct {
-	store   *store.Store
-	engine  interface {
+	store  *store.Store
+	engine interface {
 		RefreshPairs() error
 		RefreshAllPairs() error
 		SyncPair(ctx context.Context, pairID int64, direction string) error
@@ -35,6 +35,7 @@ type Handler struct {
 		ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
 		UnregisterPair(pairID int64)
 		Progress() []syncengine.PairProgressSnapshot
+		SyncRecords(limit int) []syncengine.SyncRecord
 	}
 	logPath string
 }
@@ -51,6 +52,7 @@ func New(s *store.Store, e interface {
 	ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
 	UnregisterPair(pairID int64)
 	Progress() []syncengine.PairProgressSnapshot
+	SyncRecords(limit int) []syncengine.SyncRecord
 }, logPath string) *Handler {
 	return &Handler{store: s, engine: e, logPath: logPath}
 }
@@ -61,6 +63,23 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Progress(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.engine.Progress())
+}
+
+func (h *Handler) SyncRecords(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	records := h.engine.SyncRecords(limit)
+	if records == nil {
+		records = []syncengine.SyncRecord{}
+	}
+	writeJSON(w, http.StatusOK, records)
 }
 
 type TriggerSyncRequest struct {

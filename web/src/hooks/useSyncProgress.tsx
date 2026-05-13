@@ -126,6 +126,7 @@ export function SyncProgressProvider({ children }: { children: React.ReactNode }
           updated_at: new Date().toISOString(),
         });
         entry.currentFile = '';
+        entry.queueItems = [];
         entry.bytesTransferred = 0;
         entry.bytesTotal = 0;
         dirtyRef.current = true;
@@ -183,15 +184,12 @@ export function SyncProgressProvider({ children }: { children: React.ReactNode }
       }
 
       case 'task_queued': {
-        const entry = mergeProgressSnapshot(map, {
-          pair_id: pairId,
-          status: 'syncing',
-          direction: '',
-          files_synced: 0,
-          files_total: typeof engine.files_total === 'number' ? engine.files_total : 0,
-          pending_tasks: typeof engine.pending === 'number' ? engine.pending : 0,
-          updated_at: new Date().toISOString(),
-        });
+        applyProgressEvent(map, event);
+        const entry = map.get(pairId);
+        if (entry) {
+          entry.filesTotal = typeof engine.files_total === 'number' ? engine.files_total : entry.filesTotal;
+          entry.pendingTasks = typeof engine.pending === 'number' ? engine.pending : entry.pendingTasks;
+        }
         dirtyRef.current = true;
         break;
       }

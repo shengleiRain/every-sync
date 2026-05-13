@@ -159,6 +159,8 @@ export interface WSEngineEvent {
   direction?: string;
   bytes_transferred?: number;
   bytes_total?: number;
+  files_synced?: number;
+  files_total?: number;
 }
 
 export type WSEvent = WSProgressEvent | WSStatusEvent | WSConflictEvent | WSLogEvent | WSEngineEvent;
@@ -269,12 +271,27 @@ function normalizeProvider(raw: Record<string, unknown>): Provider {
 
 export interface ActiveFileProgress {
   path: string;
-  task_type: 'upload' | 'download';
+  task_type: string;
   bytes_transferred: number;
   bytes_total: number;
   percent: number;
   started_at: string;
   updated_at: string;
+}
+
+export interface FileProgressItem {
+  path: string;
+  task_type: string;
+  status: 'pending' | 'syncing' | 'completed' | 'failed';
+  direction: SyncDirection | '';
+  bytes_transferred: number;
+  bytes_total: number;
+  percent: number;
+  queued_at?: string;
+  started_at?: string;
+  updated_at?: string;
+  finished_at?: string;
+  error?: string;
 }
 
 export interface PairProgressSnapshot {
@@ -283,6 +300,7 @@ export interface PairProgressSnapshot {
   status: 'idle' | 'scanning' | 'syncing' | 'completed' | 'failed';
   direction: SyncDirection | '';
   active_file?: ActiveFileProgress;
+  queue?: FileProgressItem[];
   files_synced: number;
   files_total: number;
   pending_tasks: number;
@@ -291,14 +309,47 @@ export interface PairProgressSnapshot {
   error?: string;
 }
 
+export interface SyncRecord {
+  id: string;
+  pair_id: string;
+  pair_name?: string;
+  path: string;
+  task_type: string;
+  status: 'completed' | 'failed';
+  direction: SyncDirection | '';
+  bytes_total: number;
+  finished_at: string;
+  error?: string;
+}
+
 export async function getProgressSnapshots(): Promise<PairProgressSnapshot[]> {
   return fetchJSON<PairProgressSnapshot[]>('/progress');
+}
+
+export async function listSyncRecords(limit: number = 100): Promise<SyncRecord[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const records = await fetchJSON<Array<Record<string, unknown>>>(`/sync-records?${params}`);
+  return records.map((raw) => ({
+    id: normalizeId(raw.id),
+    pair_id: normalizeId(raw.pair_id),
+    pair_name: raw.pair_name ? String(raw.pair_name) : undefined,
+    path: String(raw.path ?? ''),
+    task_type: String(raw.task_type ?? ''),
+    status: String(raw.status ?? 'completed') === 'failed' ? 'failed' : 'completed',
+    direction: String(raw.direction ?? '') as SyncDirection | '',
+    bytes_total: Number(raw.bytes_total ?? 0),
+    finished_at: String(raw.finished_at ?? ''),
+    error: raw.error ? String(raw.error) : undefined,
+  }));
 }
 
 // ---- API Functions ----
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const status = await fetchJSON<APIEngineStatus>('/status');
+  const [status, openConflicts] = await Promise.all([
+    fetchJSON<APIEngineStatus>('/status'),
+    fetchJSON<Array<Record<string, unknown>>>('/conflicts?status=open').catch(() => []),
+  ]);
   const pairs = status.pairs ?? [];
   return {
     engine_status: status.running ? 'running' : 'stopped',
@@ -308,7 +359,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     active_workers: status.max_workers ?? 0,
     upload_bytes: status.stats?.uploaded_bytes ?? 0,
     download_bytes: status.stats?.downloaded_bytes ?? 0,
-    conflicts: status.stats?.conflicts ?? 0,
+    conflicts: openConflicts.length,
     virtual_files: status.stats?.virtual_files ?? 0,
   };
 }

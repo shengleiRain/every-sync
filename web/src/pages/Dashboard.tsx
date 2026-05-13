@@ -6,7 +6,9 @@ import { StatusIcon } from '../components/StatusIcon';
 import { SyncIcon, UploadIcon, DownloadIcon, WarningIcon, PlayIcon } from '../components/Icons';
 import { getPairModeLabelKey, getSyncStatusLabelKey, useI18n } from '../i18n';
 import { useSyncProgress } from '../hooks/useSyncProgress';
-import { PairProgressInline } from '../components/PairProgress';
+import { PairProgressInline, PairSyncQueuePanel } from '../components/PairProgress';
+import { useWebSocket } from '../hooks/useWebSocket';
+import type { WSEvent } from '../api/client';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -33,6 +35,7 @@ export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncingPairId, setSyncingPairId] = useState<string | null>(null);
+  const refreshTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,6 +56,41 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+  }, []);
+
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) return;
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      load();
+    }, 500);
+  }, [load]);
+
+  useWebSocket({
+    onEvent: useCallback((event: WSEvent) => {
+      if ([
+        'engine_started',
+        'engine_stopped',
+        'task_queued',
+        'task_completed',
+        'task_failed',
+        'sync_completed',
+        'sync_failed',
+        'conflict_detected',
+        'conflict_resolved',
+        'pair_registered',
+        'pair_unregistered',
+        'pair_refreshed',
+      ].includes(event.type)) {
+        scheduleRefresh();
+      }
+    }, [scheduleRefresh]),
+  });
 
   // Refresh dashboard data when sync activity completes (activeSyncCount drops to 0)
   const prevSyncCountRef = React.useRef(activeSyncCount);
@@ -171,82 +209,51 @@ export const Dashboard: React.FC = () => {
             {t('dashboard.noPairs')}
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>{t('common.name')}</th>
-                  <th style={styles.th}>{t('dashboard.mode')}</th>
-                  <th style={styles.th}>{t('common.status')}</th>
-                  <th style={styles.th}>{t('dashboard.lastSync')}</th>
-                  <th style={styles.th}>{t('dashboard.files')}</th>
-                  <th style={{ ...styles.th, textAlign: 'right' }}>{t('common.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pairs.map((pair) => {
-                  const progress = getProgress(pair.id);
-                  const isActivelySyncing = progress?.status === 'syncing' || progress?.status === 'scanning';
-                  return (
-                  <tr key={pair.id} style={styles.tr}>
-                    <td style={styles.td}>
-                      <span style={{ fontWeight: 500 }}>{pair.name}</span>
-                      <span style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-                        {pair.local_path} &rarr; {pair.remote_path}
-                      </span>
-                      <PairProgressInline progress={progress} t={t} />
-                    </td>
-                    <td style={styles.td}>
-                      <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
-                    </td>
-                    <td style={styles.td}>
-                      {isActivelySyncing ? (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                          <SyncIcon size={16} color="var(--accent-green)" spinning />
-                          <span style={{ color: 'var(--accent-green)' }}>{t('status.syncing')}</span>
-                        </span>
-                      ) : (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                          <StatusIcon status={pair.status} />
-                          <span>{t(getSyncStatusLabelKey(pair.status))}</span>
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ ...styles.td, color: 'var(--text-secondary)' }}>
-                      {formatRelative(pair.last_sync, t)}
-                    </td>
-                    <td style={styles.td}>
-                      {isActivelySyncing && progress.bytesTransferred > 0 ? (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--accent-blue)' }}>
-                          {formatBytes(progress.bytesTransferred)}
-                          {progress.bytesTotal > 0 && ` / ${formatBytes(progress.bytesTotal)}`}
-                        </span>
-                      ) : pair.stats ? (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
-                          {pair.stats.synced_files}/{pair.stats.total_files}
-                        </span>
-                      ) : '—'}
-                    </td>
-                    <td style={{ ...styles.td, textAlign: 'right' }}>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => handleSync(pair.id)}
-                        disabled={syncingPairId === pair.id || isActivelySyncing}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        {syncingPairId === pair.id || isActivelySyncing ? (
-                          <SyncIcon size={14} color="#fff" spinning />
+          <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+            {pairs.map((pair) => {
+              const progress = getProgress(pair.id);
+              const isActivelySyncing = progress?.status === 'syncing' || progress?.status === 'scanning';
+              return (
+                <div key={pair.id} className="card" style={{ padding: 'var(--space-4)', border: '1px solid var(--border-muted)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 'var(--space-3)', alignItems: 'start' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600 }}>{pair.name}</span>
+                        <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
+                        {isActivelySyncing ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent-green)', fontSize: 'var(--text-xs)' }}>
+                            <SyncIcon size={14} color="var(--accent-green)" spinning /> {t('status.syncing')}
+                          </span>
                         ) : (
-                          <PlayIcon size={14} color="#fff" />
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-xs)' }}>
+                            <StatusIcon status={pair.status} size={14} /> {t(getSyncStatusLabelKey(pair.status))}
+                          </span>
                         )}
-                        {t('dashboard.sync')}
-                      </button>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {pair.local_path} &rarr; {pair.remote_path}
+                      </div>
+                      <div style={{ marginTop: 'var(--space-2)', display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                        <span>{t('dashboard.lastSync')}: {formatRelative(pair.last_sync, t)}</span>
+                        <span>{t('dashboard.files')}: {pair.stats ? `${pair.stats.synced_files}/${pair.stats.total_files}` : '-'}</span>
+                        {isActivelySyncing && progress.bytesTransferred > 0 && <span>{formatBytes(progress.bytesTransferred)}{progress.bytesTotal > 0 && ` / ${formatBytes(progress.bytesTotal)}`}</span>}
+                      </div>
+                      <PairProgressInline progress={progress} t={t} />
+                    </div>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => handleSync(pair.id)}
+                      disabled={syncingPairId === pair.id || isActivelySyncing}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      {syncingPairId === pair.id || isActivelySyncing ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}
+                      {t('dashboard.sync')}
+                    </button>
+                  </div>
+                  <PairSyncQueuePanel progress={progress} t={t} />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -91,4 +91,47 @@ describe('sync progress state', () => {
     expect(entry.activeFile?.bytesTotal).toBe(42);
     expect(entry.bytesTotal).toBe(42);
   });
+
+  it('tracks queued file items through completion with direction and recent records', () => {
+    const entry = createEmptyProgress('7');
+    const map = new Map([['7', entry]]);
+
+    applyProgressEvent(map, {
+      type: 'task_queued',
+      pair_id: '7',
+      task_type: 'upload',
+      path: '/docs/small.txt',
+    } as WSEvent);
+
+    expect(entry.queueItems).toHaveLength(1);
+    expect(entry.queueItems[0].status).toBe('pending');
+    expect(entry.queueItems[0].direction).toBe('up');
+
+    applyProgressEvent(map, {
+      type: 'task_started',
+      pair_id: '7',
+      task_type: 'upload',
+      path: '/docs/small.txt',
+      bytes_total: 42,
+    } as WSEvent);
+    applyProgressEvent(map, {
+      type: 'chunk_transferred',
+      pair_id: '7',
+      task_type: 'upload',
+      path: '/docs/small.txt',
+      bytes_transferred: 21,
+      bytes_total: 42,
+    } as WSEvent);
+    applyProgressEvent(map, {
+      type: 'task_completed',
+      pair_id: '7',
+      task_type: 'upload',
+      path: '/docs/small.txt',
+    } as WSEvent);
+
+    expect(entry.queueItems[0].status).toBe('completed');
+    expect(entry.queueItems[0].percent).toBe(100);
+    expect(entry.recentItems[0].direction).toBe('up');
+    expect(entry.recentItems[0].finishedAt).toBeTruthy();
+  });
 });

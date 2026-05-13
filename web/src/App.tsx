@@ -8,6 +8,7 @@ import { SyncPairs } from './pages/SyncPairs';
 import { Providers } from './pages/Providers';
 import { Conflicts } from './pages/Conflicts';
 import { Versions } from './pages/Versions';
+import { RecentRecords } from './pages/RecentRecords';
 import { Logs } from './pages/Logs';
 import { useWebSocket } from './hooks/useWebSocket';
 import { SyncProgressProvider } from './hooks/useSyncProgress';
@@ -61,6 +62,7 @@ const App: React.FC = () => {
             <Route path="/providers" element={<Providers />} />
             <Route path="/conflicts" element={<Conflicts />} />
             <Route path="/versions" element={<Versions />} />
+            <Route path="/recent" element={<RecentRecords />} />
             <Route path="/logs" element={<Logs />} />
           </Route>
         </Routes>

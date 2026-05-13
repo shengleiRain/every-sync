@@ -241,6 +241,10 @@ func (e *Engine) Progress() []PairProgressSnapshot {
 	return e.progress.Snapshots()
 }
 
+func (e *Engine) SyncRecords(limit int) []SyncRecord {
+	return e.progress.Records(limit)
+}
+
 // RegisterPair binds providers to a sync pair.
 func (e *Engine) RegisterPair(pair *store.SyncPair, local, remote provider.Provider) {
 	e.mu.Lock()
@@ -601,6 +605,10 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 	}
 
 	e.mu.Lock()
+	if e.pairSyncing[pair.ID] {
+		e.mu.Unlock()
+		return fmt.Errorf("sync pair %d is already syncing", pair.ID)
+	}
 	e.pairFilesSynced[pair.ID] = 0
 	e.pairFilesTotal[pair.ID] = 0
 	e.pairDirection[pair.ID] = string(dir)
@@ -608,6 +616,7 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 	cycleID := e.syncCycle
 	e.pairCycle[pair.ID] = cycleID
 	e.pairFailed[pair.ID] = false
+	e.pairSyncing[pair.ID] = true
 	e.mu.Unlock()
 
 	e.progress.StartSync(pair.ID, pair.Name, string(dir), 0)
@@ -616,6 +625,10 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 
 	// Wrap syncOnePair to inject cycleID into tasks
 	if err := e.syncOnePairWithCycle(ctx, pair, local, remote, dir, cycleID); err != nil {
+		e.mu.Lock()
+		e.pairSyncing[pair.ID] = false
+		e.mu.Unlock()
+		e.progress.FailSync(pair.ID, err.Error())
 		e.broadcast(Event{Type: "sync_failed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), Error: err.Error()})
 		return err
 	}
@@ -855,6 +868,9 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 
 	// Broadcast sync_completed immediately if no tasks were generated.
 	if len(tasks) == 0 {
+		e.mu.Lock()
+		e.pairSyncing[pair.ID] = false
+		e.mu.Unlock()
 		e.progress.FinishSync(pair.ID)
 		e.broadcast(Event{Type: "sync_completed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), FilesSynced: 0, FilesTotal: 0})
 	}
@@ -864,9 +880,10 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 			tasks[i].CycleID = cycleID[0]
 		}
 		atomic.AddInt64(&e.pending, 1)
+		e.progress.QueueTask(tasks[i].PairID, string(tasks[i].Type), tasks[i].Path, taskProgressDirection(tasks[i]))
 		select {
 		case e.taskQueue <- tasks[i]:
-			e.broadcast(Event{Type: "task_queued", PairID: tasks[i].PairID, PairName: pair.Name, TaskType: string(tasks[i].Type), Path: tasks[i].Path, Pending: atomic.LoadInt64(&e.pending)})
+			e.broadcast(Event{Type: "task_queued", PairID: tasks[i].PairID, PairName: pair.Name, TaskType: string(tasks[i].Type), Path: tasks[i].Path, Direction: taskProgressDirection(tasks[i]), Pending: atomic.LoadInt64(&e.pending), FilesTotal: uploadCount + downloadCount})
 		case <-ctx.Done():
 			atomic.AddInt64(&e.pending, -1)
 			return ctx.Err()
@@ -874,6 +891,30 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	}
 
 	return nil
+}
+
+func taskProgressDirection(task SyncTask) string {
+	switch task.Type {
+	case TaskUpload:
+		return "up"
+	case TaskDownload, TaskVirtual:
+		return "down"
+	case TaskDelete, TaskDeleteDir:
+		if task.Target == "local" {
+			return "down"
+		}
+		if task.Target == "remote" {
+			return "up"
+		}
+	case TaskCreateDir:
+		if task.Target == "local" {
+			return "down"
+		}
+		if task.Target == "remote" {
+			return "up"
+		}
+	}
+	return ""
 }
 
 func (e *Engine) scanRecursive(ctx context.Context, p provider.Provider, rootPath string) ([]*provider.FileMeta, error) {
@@ -2235,7 +2276,7 @@ func (e *Engine) processResults() {
 						e.pairFailed[pairID] = true
 					}
 					e.pairPending[pairID]--
-					if e.pairPending[pairID] == 0 && !e.pairFailed[pairID] {
+					if e.pairPending[pairID] == 0 {
 						pairName := ""
 						direction := e.pairDirection[pairID]
 						if pair, ok := e.pairs[pairID]; ok {
@@ -2243,9 +2284,15 @@ func (e *Engine) processResults() {
 						}
 						synced := e.pairFilesSynced[pairID]
 						total := e.pairFilesTotal[pairID]
+						failed := e.pairFailed[pairID]
+						e.pairSyncing[pairID] = false
 						e.mu.Unlock()
-						e.progress.FinishSync(pairID)
-						e.broadcast(Event{Type: "sync_completed", PairID: pairID, PairName: pairName, Direction: direction, FilesSynced: synced, FilesTotal: total})
+						if failed {
+							e.broadcast(Event{Type: "sync_failed", PairID: pairID, PairName: pairName, Direction: direction, FilesSynced: synced, FilesTotal: total, Error: "one or more tasks failed"})
+						} else {
+							e.progress.FinishSync(pairID)
+							e.broadcast(Event{Type: "sync_completed", PairID: pairID, PairName: pairName, Direction: direction, FilesSynced: synced, FilesTotal: total})
+						}
 					} else {
 						e.mu.Unlock()
 					}
@@ -2466,6 +2513,7 @@ func (e *Engine) startTaskProgress(pair *store.SyncPair, filePath string, taskTy
 		PairName:   pair.Name,
 		TaskType:   string(taskType),
 		Path:       filePath,
+		Direction:  directionForTask(string(taskType)),
 		BytesTotal: bytesTotal,
 	})
 }
@@ -2521,6 +2569,7 @@ func (r *chunkProgressReader) Read(p []byte) (int, error) {
 				PairName:         r.pair.Name,
 				TaskType:         string(r.taskType),
 				Path:             r.filePath,
+				Direction:        directionForTask(string(r.taskType)),
 				Message:          fmt.Sprintf("%d/%d", r.read, r.size),
 				BytesTransferred: r.read,
 				BytesTotal:       r.size,

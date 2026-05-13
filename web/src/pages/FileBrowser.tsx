@@ -18,6 +18,9 @@ import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n'
 import { showToast } from '../components/Toast';
 import { useSyncProgress } from '../hooks/useSyncProgress';
 import { ProgressBar } from '../components/ProgressBar';
+import { CircularFileProgress } from '../components/PairProgress';
+import { findQueueItem } from '../hooks/syncProgressState';
+import type { FileQueueItem } from '../hooks/syncProgressState';
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '—';
@@ -385,6 +388,7 @@ export const FileBrowser: React.FC = () => {
             selected={entry.type === 'folder' && (selectedFolders.has(entry.path) || Boolean(entry.selected))}
             isFileSyncing={syncProgress?.status === 'syncing' && syncProgress.currentFile === entry.path}
             activeFile={syncProgress?.activeFile}
+            queueItem={findQueueItem(syncProgress, entry.path)}
             t={t}
           />
         ))}
@@ -431,10 +435,11 @@ interface FileRowProps {
   selected: boolean;
   isFileSyncing: boolean;
   activeFile?: { path: string; bytesTransferred: number; bytesTotal: number; percent: number; taskType: string };
+  queueItem?: FileQueueItem;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, onSelectionToggle, selected, isFileSyncing, activeFile, t }) => {
+const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, onSelectionToggle, selected, isFileSyncing, activeFile, queueItem, t }) => {
   const isFolder = entry.type === 'folder';
   const [hovered, setHovered] = useState(false);
   const fileProgressActive = Boolean(activeFile && activeFile.path === entry.path);
@@ -508,7 +513,7 @@ const FileRow: React.FC<FileRowProps> = ({ entry, onFolderClick, onActionClick, 
       </span>
 
       <span style={{ display: 'flex', justifyContent: 'center' }}>
-        <StatusIcon status={entry.status} size={16} />
+        <CircularFileProgress item={queueItem} fallbackStatus={entry.status} size={30} />
       </span>
 
       <span style={{ display: 'flex', justifyContent: 'center' }}>

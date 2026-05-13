@@ -51,6 +51,7 @@ func TestProgressTrackerLifecycle(t *testing.T) {
 func TestProgressTrackerFailedTask(t *testing.T) {
 	tracker := NewProgressTracker()
 	tracker.StartSync(8, "docs", "down", 1)
+	tracker.QueueTask(8, "download", "/docs/report.pdf", "down")
 	tracker.StartTask(8, "download", "/docs/report.pdf", 2048)
 	tracker.FailTask(8, "download", "/docs/report.pdf", "network timeout")
 
@@ -66,5 +67,57 @@ func TestProgressTrackerFailedTask(t *testing.T) {
 	}
 	if got.ActiveFile != nil {
 		t.Fatalf("ActiveFile = %+v, want nil", got.ActiveFile)
+	}
+	if len(got.Queue) != 1 {
+		t.Fatalf("Queue len = %d, want 1", len(got.Queue))
+	}
+	if got.Queue[0].Status != "failed" || got.Queue[0].Direction != "down" {
+		t.Fatalf("failed queue item = %+v", got.Queue[0])
+	}
+
+	records := tracker.Records(10)
+	if len(records) != 1 {
+		t.Fatalf("Records len = %d, want 1", len(records))
+	}
+	if records[0].Path != "/docs/report.pdf" || records[0].Status != "failed" || records[0].Direction != "down" {
+		t.Fatalf("failed record = %+v", records[0])
+	}
+}
+
+func TestProgressTrackerQueueAndRecentRecords(t *testing.T) {
+	tracker := NewProgressTracker()
+
+	tracker.StartSync(7, "photos", "up", 1)
+	tracker.QueueTask(7, "upload", "/camera/IMG_1042.CR3", "up")
+
+	got := tracker.Snapshot(7)
+	if got == nil {
+		t.Fatalf("snapshot missing")
+	}
+	if len(got.Queue) != 1 {
+		t.Fatalf("Queue len = %d, want 1", len(got.Queue))
+	}
+	if got.Queue[0].Status != "pending" || got.Queue[0].Direction != "up" {
+		t.Fatalf("queued item = %+v", got.Queue[0])
+	}
+
+	tracker.StartTask(7, "upload", "/camera/IMG_1042.CR3", 1024)
+	tracker.ChunkTransferred(7, "/camera/IMG_1042.CR3", 512, 1024)
+	tracker.CompleteTask(7, "upload", "/camera/IMG_1042.CR3")
+
+	got = tracker.Snapshot(7)
+	if got == nil {
+		t.Fatalf("snapshot missing after completion")
+	}
+	if got.Queue[0].Status != "completed" || got.Queue[0].Percent != 100 {
+		t.Fatalf("completed queue item = %+v", got.Queue[0])
+	}
+
+	records := tracker.Records(10)
+	if len(records) != 1 {
+		t.Fatalf("Records len = %d, want 1", len(records))
+	}
+	if records[0].PairID != 7 || records[0].Path != "/camera/IMG_1042.CR3" || records[0].Status != "completed" || records[0].Direction != "up" {
+		t.Fatalf("completed record = %+v", records[0])
 	}
 }
