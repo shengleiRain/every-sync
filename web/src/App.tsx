@@ -31,6 +31,7 @@ const Layout: React.FC<{ conflictCount: number; wsConnected: boolean }> = ({ con
         overflow: 'auto',
         background: 'var(--bg-root)',
         minHeight: 0,
+        minWidth: 0,
       }}
     >
       <Outlet />

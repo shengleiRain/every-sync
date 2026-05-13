@@ -5,9 +5,11 @@ import type { ConflictEntry } from '../api/client';
 import { WarningIcon } from '../components/Icons';
 import { showToast } from '../components/Toast';
 import { useI18n } from '../i18n';
+import { useIsNarrow } from '../hooks/useViewport';
 
 export const Conflicts: React.FC = () => {
   const { t } = useI18n();
+  const isNarrow = useIsNarrow();
   const location = useLocation();
   const [conflicts, setConflicts] = useState<ConflictEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +45,7 @@ export const Conflicts: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('conflicts.title')}</h1>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
@@ -60,8 +62,7 @@ export const Conflicts: React.FC = () => {
         </div>
       ) : conflicts.length === 0 ? (
         <div className="card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-          <WarningIcon size={32} color="var(--accent-green)" />
-          <div style={{ marginTop: 'var(--space-3)' }}>{t('conflicts.noConflicts')}</div>
+          {t('conflicts.noConflicts')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -77,7 +78,7 @@ export const Conflicts: React.FC = () => {
                   {c.path}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 'var(--space-6)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', gap: isNarrow ? 'var(--space-3)' : 'var(--space-6)', flexDirection: isNarrow ? 'column' : 'row', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
                 <div>
                   <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{t('conflicts.local')}</div>
                   <div>{t('conflicts.modified')}: {formatDate(c.local_modified, t)}</div>

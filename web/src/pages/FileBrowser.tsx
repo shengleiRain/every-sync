@@ -17,6 +17,7 @@ import {
 import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
 import { showToast } from '../components/Toast';
 import { useSyncProgress } from '../hooks/useSyncProgress';
+import { useIsNarrow } from '../hooks/useViewport';
 import { ProgressBar } from '../components/ProgressBar';
 import { CircularFileProgress } from '../components/PairProgress';
 import { findQueueItem } from '../hooks/syncProgressState';
@@ -56,6 +57,7 @@ interface ActionMenuState {
 export const FileBrowser: React.FC = () => {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const isNarrow = useIsNarrow();
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [selectedPairId, setSelectedPairId] = useState<string>('');
   const [side, setSide] = useState<FileSide>('local');
@@ -205,7 +207,7 @@ export const FileBrowser: React.FC = () => {
   });
 
   return (
-    <div style={{ padding: 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ marginBottom: 'var(--space-4)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
           <div>
@@ -216,7 +218,7 @@ export const FileBrowser: React.FC = () => {
               {t('files.subtitle')}
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', width: isNarrow ? '100%' : undefined }}>
             <select
               value={selectedPairId}
               onChange={(e) => {
@@ -232,7 +234,8 @@ export const FileBrowser: React.FC = () => {
                 fontFamily: 'var(--font-sans)',
                 fontSize: 'var(--text-sm)',
                 cursor: 'pointer',
-                minWidth: '200px',
+                minWidth: isNarrow ? 0 : '200px',
+                flex: isNarrow ? '1 1 100%' : undefined,
               }}
               disabled={pairsLoading}
             >
@@ -244,16 +247,18 @@ export const FileBrowser: React.FC = () => {
               ))}
             </select>
 
-            <div className="tab-toggle">
+            <div className="tab-toggle" style={{ flex: isNarrow ? '1 1 100%' : undefined }}>
               <button
                 className={`tab-toggle-btn ${side === 'local' ? 'active' : ''}`}
                 onClick={() => setSide('local')}
+                style={{ flex: isNarrow ? 1 : undefined }}
               >
                 {t('files.local')}
               </button>
               <button
                 className={`tab-toggle-btn ${side === 'remote' ? 'active' : ''}`}
                 onClick={() => setSide('remote')}
+                style={{ flex: isNarrow ? 1 : undefined }}
               >
                 {t('files.remote')}
               </button>
@@ -266,6 +271,7 @@ export const FileBrowser: React.FC = () => {
             style={{
               display: 'flex',
               alignItems: 'center',
+              flexWrap: 'wrap',
               gap: 'var(--space-3)',
               marginTop: 'var(--space-3)',
               padding: 'var(--space-2) var(--space-3)',
@@ -277,9 +283,9 @@ export const FileBrowser: React.FC = () => {
             }}
           >
             <StatusIcon status={selectedPair.status} size={14} />
-            <span>{selectedPair.local_path}</span>
-            <SyncIcon size={14} color="var(--accent-blue)" />
-            <span>{selectedPair.provider}: {selectedPair.remote_path}</span>
+            <span style={{ overflowWrap: 'anywhere' }}>{selectedPair.local_path}</span>
+            <span>-&gt;</span>
+            <span style={{ overflowWrap: 'anywhere' }}>{selectedPair.provider}: {selectedPair.remote_path}</span>
             <span className="badge badge-blue">{t(getPairModeLabelKey(selectedPair.mode))}</span>
             <span className="badge badge-blue">{t(getPairDirectionLabelKey(selectedPair.direction))}</span>
           </div>
@@ -292,6 +298,7 @@ export const FileBrowser: React.FC = () => {
             <div style={{
               display: 'flex',
               alignItems: 'center',
+              flexWrap: 'wrap',
               gap: 'var(--space-3)',
               marginTop: 'var(--space-2)',
               padding: 'var(--space-2) var(--space-3)',
@@ -302,11 +309,11 @@ export const FileBrowser: React.FC = () => {
               color: 'var(--accent-blue)',
             }}>
               <SyncIcon size={16} spinning />
-              <span style={{ flex: 1 }}>
+              <span style={{ flex: '1 1 220px', minWidth: 0, overflowWrap: 'anywhere' }}>
                 {progress.currentFile ? `Syncing: ${progress.currentFile.length > 60 ? '...' + progress.currentFile.slice(-57) : progress.currentFile}` : 'Processing...'}
               </span>
               {progress.filesTotal > 0 && <span>{progress.filesSynced}/{progress.filesTotal} ({percent}%)</span>}
-              <div style={{ width: '120px', height: '4px', background: 'var(--border-default)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ width: isNarrow ? '100%' : '120px', height: '4px', background: 'var(--border-default)', borderRadius: '2px', overflow: 'hidden' }}>
                 <div style={{ width: `${percent}%`, height: '100%', background: 'var(--accent-blue)', borderRadius: '2px', transition: 'width 0.3s ease' }} />
               </div>
             </div>

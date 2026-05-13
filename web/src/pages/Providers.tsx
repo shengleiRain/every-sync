@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { listProviders, createProvider, updateProvider, deleteProvider, deleteProviderForce, testProvider } from '../api/client';
 import type { Provider } from '../api/client';
-import { GearIcon, CheckIcon, CloseIcon } from '../components/Icons';
 import { Modal } from '../components/Modal';
 import { showToast } from '../components/Toast';
 import { useI18n } from '../i18n';
+import { useIsNarrow } from '../hooks/useViewport';
 
 interface ProviderForm {
   name: string;
@@ -38,6 +38,7 @@ interface ProviderWithParams extends Provider {
 
 export const Providers: React.FC = () => {
   const { t } = useI18n();
+  const isNarrow = useIsNarrow();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -180,9 +181,9 @@ export const Providers: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 'var(--space-6)', maxWidth: '800px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-6)' }}>
-        <div>
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', maxWidth: '800px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
+        <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('providers.title')}</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
             {t('providers.subtitle')}
@@ -206,17 +207,16 @@ export const Providers: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {providers.map((p) => (
             <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)', flexWrap: 'wrap' }}>
-              <GearIcon size={20} color={p.configured ? 'var(--accent-green)' : 'var(--text-tertiary)'} />
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: isNarrow ? '100%' : 0 }}>
                 <div style={{ fontWeight: 600 }}>{p.name}</div>
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{p.type}</div>
               </div>
               {p.configured ? (
-                <span className="badge badge-green"><CheckIcon size={12} color="var(--accent-green)" /> {t('providers.configured')}</span>
+                <span className="badge badge-green">{t('providers.configured')}</span>
               ) : (
-                <span className="badge badge-amber"><CloseIcon size={12} color="var(--accent-amber)" /> {t('providers.notConfigured')}</span>
+                <span className="badge badge-amber">{t('providers.notConfigured')}</span>
               )}
-              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                 <button className="btn btn-sm" onClick={() => openEdit(p as ProviderWithParams)}>{t('common.edit')}</button>
                 <button className="btn btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(p.id)}>{t('common.delete')}</button>
               </div>
@@ -226,7 +226,7 @@ export const Providers: React.FC = () => {
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? t('providers.editProvider') : t('providers.newProviderTitle')}>
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr', gap: 'var(--space-4)' }}>
           <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
             <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('common.name')}</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="my-webdav" required style={inputStyle} />

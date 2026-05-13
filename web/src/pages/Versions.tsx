@@ -5,9 +5,11 @@ import type { SyncPair, VersionEntry } from '../api/client';
 import { ClockIcon } from '../components/Icons';
 import { showToast } from '../components/Toast';
 import { useI18n } from '../i18n';
+import { useIsNarrow } from '../hooks/useViewport';
 
 export const Versions: React.FC = () => {
   const { t } = useI18n();
+  const isNarrow = useIsNarrow();
   const location = useLocation();
   const navigate = useNavigate();
   const initialParams = new URLSearchParams(location.search);
@@ -95,7 +97,7 @@ export const Versions: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('versions.title')}</h1>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
@@ -104,7 +106,7 @@ export const Versions: React.FC = () => {
       </div>
 
       <div className="card" style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-4) var(--space-5)' }}>
-        <form onSubmit={handleSearch} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 'var(--space-3)', alignItems: 'end' }}>
+        <form onSubmit={handleSearch} style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 2fr auto', gap: 'var(--space-3)', alignItems: 'end' }}>
           <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
             <label style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-secondary)' }}>{t('versions.syncPair')}</label>
             <select value={selectedPair} onChange={(e) => setSelectedPair(e.target.value)} style={inputStyle} disabled={pairsLoading}>

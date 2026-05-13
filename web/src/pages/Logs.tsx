@@ -4,6 +4,7 @@ import type { LogEntry, WSEvent } from '../api/client';
 import { showToast } from '../components/Toast';
 import { useI18n } from '../i18n';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useIsNarrow } from '../hooks/useViewport';
 
 const levelColors: Record<string, string> = {
   debug: 'var(--text-tertiary)',
@@ -21,6 +22,7 @@ const levelBg: Record<string, string> = {
 
 export const Logs: React.FC = () => {
   const { t } = useI18n();
+  const isNarrow = useIsNarrow();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -137,7 +139,7 @@ export const Logs: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexShrink: 0, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('logs.title')}</h1>
@@ -165,7 +167,7 @@ export const Logs: React.FC = () => {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('logs.filterPlaceholder')}
-          style={inputStyle}
+          style={{ ...inputStyle, flexBasis: isNarrow ? '100%' : undefined }}
         />
         <select value={level} onChange={(e) => setLevel(e.target.value)} style={selectStyle}>
           <option value="">{t('logs.allLevels')}</option>

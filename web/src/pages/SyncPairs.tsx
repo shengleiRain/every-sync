@@ -9,7 +9,8 @@ import { Modal } from '../components/Modal';
 import { showToast } from '../components/Toast';
 import { getPairDirectionLabelKey, getPairModeLabelKey, useI18n } from '../i18n';
 import { useSyncProgress } from '../hooks/useSyncProgress';
-import { PairProgressDetail, PairProgressInline, PairSyncQueuePanel } from '../components/PairProgress';
+import { useIsNarrow } from '../hooks/useViewport';
+import { PairProgressInline, PairSyncQueuePanel } from '../components/PairProgress';
 
 const emptyForm = {
   name: '',
@@ -28,8 +29,8 @@ type PairForm = typeof emptyForm;
 export const SyncPairs: React.FC = () => {
   const { t } = useI18n();
   const { getProgress } = useSyncProgress();
+  const isNarrow = useIsNarrow();
   const [pairs, setPairs] = useState<SyncPair[]>([]);
-  const [selectedPairId, setSelectedPairId] = useState<string>('');
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -46,7 +47,6 @@ export const SyncPairs: React.FC = () => {
     try {
       const [p, prov] = await Promise.all([listPairs(), listProviders()]);
       setPairs(p);
-      setSelectedPairId((current) => current || p.find((pair) => getProgress(pair.id)?.status === 'syncing')?.id || p[0]?.id || '');
       setProviders(prov.map((x) => ({ id: x.id, name: x.name })));
     } catch (e) {
       const message = e instanceof Error ? e.message : t('pairs.loadFailed');
@@ -179,9 +179,9 @@ export const SyncPairs: React.FC = () => {
   );
 
   return (
-    <div style={{ padding: 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-6)' }}>
-        <div>
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', maxWidth: '1000px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
+        <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('pairs.title')}</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
             {t('pairs.subtitle')}
@@ -202,31 +202,32 @@ export const SyncPairs: React.FC = () => {
           {t('pairs.noPairs')}
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 'var(--space-4)', alignItems: 'start' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {pairs.map((pair) => {
             const progress = getProgress(pair.id);
             const isActivelySyncing = progress?.status === 'syncing';
 
             return (
-              <div key={pair.id} className="card" onClick={() => setSelectedPairId(pair.id)} style={{ padding: 'var(--space-4) var(--space-5)', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+              <div key={pair.id} className="card" style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-4) var(--space-5)' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
                   {isActivelySyncing ? (
                     <SyncIcon size={20} color="var(--accent-green)" spinning />
                   ) : (
                     <StatusIcon status={pair.status} size={20} />
                   )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ flex: isNarrow ? '1 1 calc(100% - 44px)' : 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, marginBottom: '2px' }}>{pair.name}</div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                      {pair.local_path} <SyncIcon size={12} color="var(--accent-blue)" /> {pair.remote_path}
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
+                      {pair.local_path} -&gt; {pair.remote_path}
                     </div>
                     <PairProgressInline progress={progress} t={t} />
                   </div>
-                  <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
-                  <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
-                  <span className="badge badge-blue">{t(getPairDirectionLabelKey(pair.direction))}</span>
-                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', flexBasis: isNarrow ? '100%' : undefined, paddingLeft: isNarrow ? '32px' : 0 }}>
+                    <span className={`badge ${pair.enabled ? 'badge-green' : 'badge-blue'}`}>{pair.enabled ? t('common.enabled') : t('common.disabled')}</span>
+                    <span className="badge badge-blue">{t(getPairModeLabelKey(pair.mode))}</span>
+                    <span className="badge badge-blue">{t(getPairDirectionLabelKey(pair.direction))}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', flexBasis: isNarrow ? '100%' : undefined, paddingLeft: isNarrow ? '32px' : 0 }}>
                     <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); handleSync(pair.id); }} disabled={syncingId === pair.id || isActivelySyncing} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                       {syncingId === pair.id || isActivelySyncing ? <SyncIcon size={14} color="#fff" spinning /> : <PlayIcon size={14} color="#fff" />}
                       {t('dashboard.sync')}
@@ -240,17 +241,11 @@ export const SyncPairs: React.FC = () => {
               </div>
             );
           })}
-          </div>
-          <PairProgressDetail
-            progress={selectedPairId ? getProgress(selectedPairId) : undefined}
-            pairName={pairs.find((pair) => pair.id === selectedPairId)?.name}
-            t={t}
-          />
         </div>
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? t('pairs.editPair') : t('pairs.newPairTitle')}>
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr', gap: 'var(--space-4)' }}>
           {field('name', t('common.name'), { placeholder: 'my-photos' })}
           {field('provider', t('pairs.provider'))}
           {field('local_path', t('pairs.localPath'), { placeholder: '/home/user/photos' })}
@@ -258,10 +253,10 @@ export const SyncPairs: React.FC = () => {
           {field('direction', t('pairs.direction'))}
           {field('mode', t('pairs.mode'))}
           {field('conflict_strategy', t('pairs.conflictStrategy'))}
-          <div />
+          {!isNarrow && <div />}
           {field('include_patterns', t('pairs.includePatterns'), { placeholder: '*.md, docs/**' })}
           {field('exclude_patterns', t('pairs.excludePatterns'), { placeholder: '*.tmp, cache/**' })}
-          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" type="submit" disabled={submitting}>
               {submitting ? t('common.saving') : editingId ? t('pairs.saveChanges') : t('pairs.createPair')}
             </button>

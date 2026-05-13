@@ -3,9 +3,10 @@ import { getDashboardStats, listPairs, triggerSync, syncAll } from '../api/clien
 import { showToast } from '../components/Toast';
 import type { DashboardStats, SyncPair } from '../api/client';
 import { StatusIcon } from '../components/StatusIcon';
-import { SyncIcon, UploadIcon, DownloadIcon, WarningIcon, PlayIcon } from '../components/Icons';
+import { SyncIcon, UploadIcon, DownloadIcon, WarningIcon, PlayIcon, CloudIcon } from '../components/Icons';
 import { getPairModeLabelKey, getSyncStatusLabelKey, useI18n } from '../i18n';
 import { useSyncProgress } from '../hooks/useSyncProgress';
+import { useIsNarrow } from '../hooks/useViewport';
 import { PairProgressInline, PairSyncQueuePanel } from '../components/PairProgress';
 import { useWebSocket } from '../hooks/useWebSocket';
 import type { WSEvent } from '../api/client';
@@ -30,6 +31,7 @@ function formatRelative(dateStr: string | undefined, t: (key: string, params?: R
 export const Dashboard: React.FC = () => {
   const { t } = useI18n();
   const { getProgress, activeSyncCount } = useSyncProgress();
+  const isNarrow = useIsNarrow();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,7 +201,7 @@ export const Dashboard: React.FC = () => {
         <TrafficCard label={t('dashboard.upload')} value={formatBytes(stats?.upload_bytes ?? 0)} icon={<UploadIcon size={18} color="var(--accent-blue)" />} />
         <TrafficCard label={t('dashboard.download')} value={formatBytes(stats?.download_bytes ?? 0)} icon={<DownloadIcon size={18} color="var(--accent-green)" />} />
         <TrafficCard label={t('dashboard.conflicts')} value={String(stats?.conflicts ?? 0)} icon={<WarningIcon size={18} color="var(--accent-red)" />} badge={(stats?.conflicts ?? 0) > 0 ? 'red' : undefined} t={t} />
-        <TrafficCard label={t('dashboard.virtualFiles')} value={String(stats?.virtual_files ?? 0)} icon={<WarningIcon size={18} color="var(--accent-violet)" />} />
+        <TrafficCard label={t('dashboard.virtualFiles')} value={String(stats?.virtual_files ?? 0)} icon={<CloudIcon size={18} color="var(--accent-violet)" />} />
       </div>
 
       <div className="card" style={{ marginTop: 'var(--space-5)' }}>
@@ -215,7 +217,7 @@ export const Dashboard: React.FC = () => {
               const isActivelySyncing = progress?.status === 'syncing' || progress?.status === 'scanning';
               return (
                 <div key={pair.id} className="card" style={{ padding: 'var(--space-4)', border: '1px solid var(--border-muted)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 'var(--space-3)', alignItems: 'start' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'minmax(0, 1fr) auto', gap: 'var(--space-3)', alignItems: 'start' }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600 }}>{pair.name}</span>
@@ -262,10 +264,17 @@ export const Dashboard: React.FC = () => {
 };
 
 const PageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ padding: 'var(--space-6)', maxWidth: '1200px', margin: '0 auto' }}>
-    {children}
-  </div>
+  <PageWrapperInner>{children}</PageWrapperInner>
 );
+
+const PageWrapperInner: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isNarrow = useIsNarrow();
+  return (
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', maxWidth: '1200px', margin: '0 auto' }}>
+      {children}
+    </div>
+  );
+};
 
 interface MetricCardProps {
   label: string;

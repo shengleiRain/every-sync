@@ -112,30 +112,3 @@ export const PairSyncQueuePanel: React.FC<{ progress?: SyncProgress; t: (key: st
     </div>
   );
 };
-
-export const PairProgressDetail: React.FC<{ progress?: SyncProgress; pairName?: string; t: (key: string) => string }> = ({ progress, pairName, t }) => {
-  if (!progress) {
-    return (
-      <div className="card" style={{ padding: 'var(--space-5)', color: 'var(--text-tertiary)', display: 'grid', gap: 'var(--space-3)' }}>
-        <span>{t('progress.noActive')}</span>
-        <Link to="/recent" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-blue)', textDecoration: 'none' }}>{t('progress.viewRecent')}</Link>
-      </div>
-    );
-  }
-  const percent = progress.activeFile?.percent ?? 0;
-  return (
-    <div className="card" style={{ padding: 'var(--space-5)', display: 'grid', gap: 'var(--space-3)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-        <strong>{pairName ?? progress.pairId}</strong>
-        <span style={{ color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)' }}>{Math.round(percent)}%</span>
-      </div>
-      <ProgressBar percent={percent} />
-      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-        <div>{t('progress.current')}: {progress.currentFile ? truncatePath(progress.currentFile, 64) : t('progress.processing')}</div>
-        <div>{t('progress.queue')}: {progress.filesSynced}/{progress.filesTotal}</div>
-        {progress.activeFile && <div>{t('progress.transfer')}: {formatBytes(progress.activeFile.bytesTransferred)} / {formatBytes(progress.activeFile.bytesTotal)}</div>}
-      </div>
-      <PairSyncQueuePanel progress={progress} t={t} defaultOpen />
-    </div>
-  );
-};

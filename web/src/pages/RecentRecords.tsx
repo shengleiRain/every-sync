@@ -3,6 +3,7 @@ import { listPairs, listSyncRecords } from '../api/client';
 import type { SyncPair, SyncRecord } from '../api/client';
 import { CheckIcon, DownloadIcon, SyncIcon, UploadIcon, WarningIcon } from '../components/Icons';
 import { useI18n } from '../i18n';
+import { useIsNarrow } from '../hooks/useViewport';
 
 function formatBytes(bytes: number): string {
   if (!bytes) return '0 B';
@@ -18,6 +19,7 @@ function formatDate(value: string): string {
 
 export const RecentRecords: React.FC = () => {
   const { t } = useI18n();
+  const isNarrow = useIsNarrow();
   const [records, setRecords] = useState<SyncRecord[]>([]);
   const [pairs, setPairs] = useState<SyncPair[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +45,9 @@ export const RecentRecords: React.FC = () => {
   const pairNames = useMemo(() => new Map(pairs.map((pair) => [pair.id, pair.name])), [pairs]);
 
   return (
-    <div style={{ padding: 'var(--space-6)', maxWidth: '1100px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', marginBottom: 'var(--space-6)' }}>
-        <div>
+    <div style={{ padding: isNarrow ? 'var(--space-4)' : 'var(--space-6)', maxWidth: '1100px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
+        <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, margin: 0 }}>{t('recent.title')}</h1>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>{t('recent.subtitle')}</p>
         </div>
