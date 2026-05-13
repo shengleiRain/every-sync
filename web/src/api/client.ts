@@ -265,6 +265,34 @@ function normalizeProvider(raw: Record<string, unknown>): Provider {
   };
 }
 
+export interface ActiveFileProgress {
+  path: string;
+  task_type: 'upload' | 'download';
+  bytes_transferred: number;
+  bytes_total: number;
+  percent: number;
+  started_at: string;
+  updated_at: string;
+}
+
+export interface PairProgressSnapshot {
+  pair_id: string | number;
+  pair_name?: string;
+  status: 'idle' | 'scanning' | 'syncing' | 'completed' | 'failed';
+  direction: SyncDirection | '';
+  active_file?: ActiveFileProgress;
+  files_synced: number;
+  files_total: number;
+  pending_tasks: number;
+  started_at?: string;
+  updated_at: string;
+  error?: string;
+}
+
+export async function getProgressSnapshots(): Promise<PairProgressSnapshot[]> {
+  return fetchJSON<PairProgressSnapshot[]>('/progress');
+}
+
 // ---- API Functions ----
 
 export async function getDashboardStats(): Promise<DashboardStats> {
