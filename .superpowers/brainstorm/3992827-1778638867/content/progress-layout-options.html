@@ -1,0 +1,82 @@
+<h2>单文件同步进度应该放在哪里？</h2>
+<p class="subtitle">下面是三个低保真方向，重点看信息层级和日常使用效率，不看最终配色。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:grid;gap:10px;font-size:12px">
+        <div style="display:grid;grid-template-columns:1fr 88px 84px;gap:8px;align-items:center;padding:8px;border:1px solid #d8dde8;border-radius:6px;background:#fff">
+          <div>
+            <strong>Photos Backup</strong>
+            <div style="color:#667085;margin-top:3px">/camera/2026/IMG_1042.CR3</div>
+            <div style="height:5px;background:#e6eaf2;border-radius:4px;margin-top:7px;overflow:hidden"><div style="width:58%;height:100%;background:#3B6BF5"></div></div>
+          </div>
+          <span>58%</span>
+          <span>2.1 GB/s</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 88px 84px;gap:8px;align-items:center;padding:8px;border:1px solid #d8dde8;border-radius:6px;background:#fff">
+          <div>
+            <strong>Docs Mirror</strong>
+            <div style="color:#667085;margin-top:3px">contract-final.pdf</div>
+            <div style="height:5px;background:#e6eaf2;border-radius:4px;margin-top:7px;overflow:hidden"><div style="width:100%;height:100%;background:#1FA463"></div></div>
+          </div>
+          <span>Done</span>
+          <span>18 MB</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 行内紧凑进度</h3>
+      <p>仪表盘和同步对列表直接在每个同步对行内显示当前文件、百分比、速率和计数；文件浏览页只在对应文件行显示进度。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:grid;grid-template-columns:1fr 150px;gap:10px;font-size:12px">
+        <div style="display:grid;gap:8px">
+          <div style="padding:8px;border:1px solid #d8dde8;border-radius:6px;background:#fff"><strong>Photos Backup</strong><div style="color:#667085">Current: IMG_1042.CR3</div></div>
+          <div style="padding:8px;border:1px solid #d8dde8;border-radius:6px;background:#fff"><strong>Docs Mirror</strong><div style="color:#667085">Idle</div></div>
+        </div>
+        <div style="padding:10px;border:1px solid #b8c7ff;border-radius:6px;background:#eef3ff">
+          <strong>Active transfer</strong>
+          <div style="margin-top:8px;color:#344054">IMG_1042.CR3</div>
+          <div style="height:6px;background:#d9e2ff;border-radius:4px;margin:8px 0;overflow:hidden"><div style="width:58%;height:100%;background:#3B6BF5"></div></div>
+          <div>812 MB / 1.4 GB</div>
+          <div style="margin-top:6px;color:#667085">Upload · 2 retries left</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 行内摘要 + 右侧详情</h3>
+      <p>列表保持可扫读；点击/选择同步对后，在详情栏展示当前文件、字节级进度、队列、失败重试和最近完成文件。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:grid;gap:8px;font-size:12px">
+        <div style="display:flex;justify-content:space-between;padding:8px;border:1px solid #d8dde8;border-radius:6px;background:#fff">
+          <strong>Global Activity</strong><span>3 active · 18 queued</span>
+        </div>
+        <div style="padding:8px;border:1px solid #d8dde8;border-radius:6px;background:#fff">
+          <strong>IMG_1042.CR3</strong><span style="float:right">58%</span>
+          <div style="height:5px;background:#e6eaf2;border-radius:4px;margin-top:7px;overflow:hidden"><div style="width:58%;height:100%;background:#3B6BF5"></div></div>
+        </div>
+        <div style="padding:8px;border:1px solid #d8dde8;border-radius:6px;background:#fff">
+          <strong>video-edit.mov</strong><span style="float:right">22%</span>
+          <div style="height:5px;background:#e6eaf2;border-radius:4px;margin-top:7px;overflow:hidden"><div style="width:22%;height:100%;background:#3B6BF5"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 独立活动中心</h3>
+      <p>新增全局“传输活动”区域展示所有文件级任务，仪表盘/同步对/文件浏览只显示入口和少量状态。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的初步建议</h3>
+  <p>建议以 B 为主：行内信息足够轻，详情栏能容纳单文件进度、队列和错误上下文；文件浏览页仍可在文件行上显示当前文件进度，避免来回跳转。</p>
+</div>

@@ -76,6 +76,7 @@ type SyncTask struct {
 	Retries      int
 	Target       string // "local", "remote", or "db_cleanup"
 	ConflictType string // "modify_delete", "delete_modify", "modify_modify", etc.
+	CycleID      uint64 // identifies which sync cycle this task belongs to
 }
 
 type TaskResult struct {
@@ -196,6 +197,11 @@ type Engine struct {
 	// Per-pair file sync progress tracking for current sync cycle.
 	pairFilesSynced map[int64]int // pairID -> count of synced files in current sync cycle
 	pairFilesTotal  map[int64]int // pairID -> total files to sync
+	pairPending     map[int64]int64 // pairID -> number of pending tasks for this pair's current sync
+	pairDirection   map[int64]string // pairID -> direction of current sync
+	pairCycle       map[int64]uint64 // pairID -> current sync cycle ID
+	pairSyncing     map[int64]bool   // pairID -> whether a sync is in progress for this pair
+	syncCycle       uint64 // monotonically increasing sync cycle counter
 }
 
 func New(s *store.Store, cfg Config) *Engine {
@@ -213,6 +219,10 @@ func New(s *store.Store, cfg Config) *Engine {
 		subs:            make(map[chan Event]struct{}),
 		pairFilesSynced: make(map[int64]int),
 		pairFilesTotal:  make(map[int64]int),
+		pairPending:     make(map[int64]int64),
+		pairDirection:   make(map[int64]string),
+		pairCycle:       make(map[int64]uint64),
+		pairSyncing:     make(map[int64]bool),
 	}
 }
 
@@ -584,19 +594,20 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 	e.mu.Lock()
 	e.pairFilesSynced[pair.ID] = 0
 	e.pairFilesTotal[pair.ID] = 0
+	e.pairDirection[pair.ID] = string(dir)
+	e.syncCycle++
+	cycleID := e.syncCycle
+	e.pairCycle[pair.ID] = cycleID
 	e.mu.Unlock()
 
 	e.broadcast(Event{Type: "sync_started", PairID: pair.ID, PairName: pair.Name, Direction: string(dir)})
-	if err := e.syncOnePair(ctx, pair, local, remote, dir); err != nil {
+
+	// Wrap syncOnePair to inject cycleID into tasks
+	if err := e.syncOnePairWithCycle(ctx, pair, local, remote, dir, cycleID); err != nil {
 		e.broadcast(Event{Type: "sync_failed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), Error: err.Error()})
 		return err
 	}
 
-	e.mu.RLock()
-	synced := e.pairFilesSynced[pair.ID]
-	total := e.pairFilesTotal[pair.ID]
-	e.mu.RUnlock()
-	e.broadcast(Event{Type: "sync_completed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), FilesSynced: synced, FilesTotal: total})
 	return nil
 }
 
@@ -747,7 +758,11 @@ func (e *Engine) ResolveConflict(ctx context.Context, conflictID int64, strategy
 	return nil
 }
 
-func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, dir Direction) error {
+func (e *Engine) syncOnePairWithCycle(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, dir Direction, cycleID uint64) error {
+	return e.syncOnePair(ctx, pair, local, remote, dir, cycleID)
+}
+
+func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, remote provider.Provider, dir Direction, cycleID ...uint64) error {
 	logger.L.Info().Str("pair", pair.Name).Str("direction", string(dir)).Msg("syncing pair")
 
 	var localFiles, remoteFiles []*provider.FileMeta
@@ -802,6 +817,10 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	// Track total files to sync for progress events.
 	e.mu.Lock()
 	e.pairFilesTotal[pair.ID] = uploadCount + downloadCount
+	taskCount := int64(len(tasks))
+		if taskCount > 0 {
+			e.pairPending[pair.ID] = taskCount
+		}
 	e.mu.Unlock()
 
 	if e.config.DryRun {
@@ -820,11 +839,19 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 		return err
 	}
 
-	for _, task := range tasks {
+	// Broadcast sync_completed immediately if no tasks were generated.
+	if len(tasks) == 0 {
+		e.broadcast(Event{Type: "sync_completed", PairID: pair.ID, PairName: pair.Name, Direction: string(dir), FilesSynced: 0, FilesTotal: 0})
+	}
+
+	for i := range tasks {
+		if len(cycleID) > 0 {
+			tasks[i].CycleID = cycleID[0]
+		}
 		atomic.AddInt64(&e.pending, 1)
 		select {
-		case e.taskQueue <- task:
-			e.broadcast(Event{Type: "task_queued", PairID: task.PairID, PairName: pair.Name, TaskType: string(task.Type), Path: task.Path, Pending: atomic.LoadInt64(&e.pending)})
+		case e.taskQueue <- tasks[i]:
+			e.broadcast(Event{Type: "task_queued", PairID: tasks[i].PairID, PairName: pair.Name, TaskType: string(tasks[i].Type), Path: tasks[i].Path, Pending: atomic.LoadInt64(&e.pending)})
 		case <-ctx.Done():
 			atomic.AddInt64(&e.pending, -1)
 			return ctx.Err()
@@ -1240,7 +1267,7 @@ func generateDirDownTasks(pair *store.SyncPair, key string, localMeta, remoteMet
 		return []SyncTask{newDirTask(TaskCreateDir, pair.ID, key, "local")}
 	}
 	// Directory deleted on remote side: local still has it, was previously synced
-	if !hasRemote && hasLocal && isSynced(entry) {
+	if !hasRemote && hasLocal && isSynced(entry) && !isRootPath(key) {
 		return []SyncTask{newDirTask(TaskDeleteDir, pair.ID, key, "local")}
 	}
 	return nil
@@ -1249,7 +1276,7 @@ func generateDirDownTasks(pair *store.SyncPair, key string, localMeta, remoteMet
 // generateDirBothTasks handles directory entries in "both" direction.
 func generateDirBothTasks(pair *store.SyncPair, key string, localMeta, remoteMeta *provider.FileMeta, entry *store.FileEntry, hasLocal, hasRemote bool) []SyncTask {
 	if hasLocal && !hasRemote {
-		if isSynced(entry) {
+		if isSynced(entry) && !isRootPath(key) {
 			// Directory was synced but now deleted on remote -> delete on local
 			return []SyncTask{newDirTask(TaskDeleteDir, pair.ID, key, "local")}
 		}
@@ -1257,7 +1284,7 @@ func generateDirBothTasks(pair *store.SyncPair, key string, localMeta, remoteMet
 		return []SyncTask{newDirTask(TaskCreateDir, pair.ID, key, "remote")}
 	}
 	if hasRemote && !hasLocal {
-		if isSynced(entry) {
+		if isSynced(entry) && !isRootPath(key) {
 			// Directory was synced but now deleted on local -> delete on remote
 			return []SyncTask{newDirTask(TaskDeleteDir, pair.ID, key, "remote")}
 		}
@@ -1275,6 +1302,10 @@ func newDirTask(taskType TaskType, pairID int64, key, target string) SyncTask {
 		Priority: 0, // Lower priority so file tasks run first
 		Target:   target,
 	}
+}
+
+func isRootPath(p string) bool {
+	return path.Clean(p) == "/" || path.Clean(p) == "."
 }
 
 func newTask(taskType TaskType, pairID int64, key string) SyncTask {
@@ -2136,6 +2167,8 @@ func (e *Engine) processResults() {
 			if !ok {
 				return
 			}
+			pairID := result.Task.PairID
+
 			if result.Error != nil {
 				if result.Task.Retries < e.config.RetryMax {
 					result.Task.Retries++
@@ -2150,21 +2183,44 @@ func (e *Engine) processResults() {
 				} else {
 					atomic.AddInt64(&e.pending, -1)
 					logger.L.Error().Err(result.Error).Str("path", result.Task.Path).Str("type", string(result.Task.Type)).Msg("task permanently failed")
-					e.broadcast(Event{Type: "task_failed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Error: result.Error.Error(), Pending: atomic.LoadInt64(&e.pending)})
+					e.broadcast(Event{Type: "task_failed", PairID: pairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Error: result.Error.Error(), Pending: atomic.LoadInt64(&e.pending)})
 				}
 			} else {
 				atomic.AddInt64(&e.pending, -1)
 				// Track synced file count for upload/download tasks.
 				if result.Task.Type == TaskUpload || result.Task.Type == TaskDownload {
 					e.mu.Lock()
-					e.pairFilesSynced[result.Task.PairID]++
-					synced := e.pairFilesSynced[result.Task.PairID]
-					total := e.pairFilesTotal[result.Task.PairID]
+					e.pairFilesSynced[pairID]++
+					synced := e.pairFilesSynced[pairID]
+					total := e.pairFilesTotal[pairID]
 					e.mu.Unlock()
-					e.broadcast(Event{Type: "task_completed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending), FilesSynced: synced, FilesTotal: total})
+					e.broadcast(Event{Type: "task_completed", PairID: pairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending), FilesSynced: synced, FilesTotal: total})
 				} else {
-					e.broadcast(Event{Type: "task_completed", PairID: result.Task.PairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending)})
+					e.broadcast(Event{Type: "task_completed", PairID: pairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Pending: atomic.LoadInt64(&e.pending)})
 				}
+			}
+
+			// Decrement per-pair pending count and broadcast sync_completed when all tasks done.
+			// Only count tasks from the current sync cycle.
+			e.mu.Lock()
+			currentCycle := e.pairCycle[pairID]
+			if result.Task.CycleID == currentCycle && e.pairPending[pairID] > 0 {
+				e.pairPending[pairID]--
+				if e.pairPending[pairID] == 0 {
+					pairName := ""
+					direction := e.pairDirection[pairID]
+					if pair, ok := e.pairs[pairID]; ok {
+						pairName = pair.Name
+					}
+					synced := e.pairFilesSynced[pairID]
+					total := e.pairFilesTotal[pairID]
+					e.mu.Unlock()
+					e.broadcast(Event{Type: "sync_completed", PairID: pairID, PairName: pairName, Direction: direction, FilesSynced: synced, FilesTotal: total})
+				} else {
+					e.mu.Unlock()
+				}
+			} else {
+				e.mu.Unlock()
 			}
 		}
 	}

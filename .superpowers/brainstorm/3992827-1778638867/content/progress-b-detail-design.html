@@ -1,0 +1,83 @@
+<h2>B 方案细化：行内摘要 + 右侧详情</h2>
+<p class="subtitle">目标是在高频页面中显示当前单文件进度，同时保持同步对列表和文件浏览可扫读。</p>
+
+<div class="mockup">
+  <div class="mockup-header">同步对页面</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:14px;font-size:12px">
+      <div style="display:grid;gap:8px">
+        <div style="display:grid;grid-template-columns:20px minmax(0,1fr) 72px 72px 94px;gap:8px;align-items:center;padding:10px;border:1px solid #d8dde8;border-radius:6px;background:#fff">
+          <div style="width:12px;height:12px;border-radius:50%;border:2px solid #1FA463"></div>
+          <div style="min-width:0">
+            <strong>Photos Backup</strong>
+            <div style="color:#667085;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">/home/photos -> webdav:/photos</div>
+            <div style="display:flex;gap:10px;color:#667085;margin-top:4px">
+              <span>IMG_1042.CR3</span><span>812 MB / 1.4 GB</span><span>58%</span>
+            </div>
+            <div style="height:4px;background:#e6eaf2;border-radius:4px;margin-top:5px;overflow:hidden"><div style="width:58%;height:100%;background:#3B6BF5"></div></div>
+          </div>
+          <span style="color:#1FA463">Syncing</span>
+          <span>12 / 37</span>
+          <button class="mock-button">Sync</button>
+        </div>
+        <div style="display:grid;grid-template-columns:20px minmax(0,1fr) 72px 72px 94px;gap:8px;align-items:center;padding:10px;border:1px solid #d8dde8;border-radius:6px;background:#fff">
+          <div style="width:12px;height:12px;border-radius:50%;background:#1FA463"></div>
+          <div style="min-width:0">
+            <strong>Docs Mirror</strong>
+            <div style="color:#667085;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">/home/docs -> webdav:/docs</div>
+          </div>
+          <span>Synced</span>
+          <span>88 / 88</span>
+          <button class="mock-button">Sync</button>
+        </div>
+      </div>
+
+      <div style="padding:12px;border:1px solid #b8c7ff;border-radius:6px;background:#eef3ff">
+        <div style="display:flex;justify-content:space-between;gap:8px">
+          <strong>Photos Backup</strong>
+          <span style="color:#3B6BF5">58%</span>
+        </div>
+        <div style="height:6px;background:#d9e2ff;border-radius:4px;margin:10px 0;overflow:hidden"><div style="width:58%;height:100%;background:#3B6BF5"></div></div>
+        <div style="display:grid;gap:6px;color:#344054">
+          <div><span style="color:#667085">Current</span><br><strong>IMG_1042.CR3</strong></div>
+          <div><span style="color:#667085">Transfer</span><br>812 MB / 1.4 GB</div>
+          <div><span style="color:#667085">Direction</span><br>Upload</div>
+          <div><span style="color:#667085">Queue</span><br>12 completed · 25 remaining</div>
+        </div>
+        <div style="border-top:1px solid #c9d6ff;margin-top:10px;padding-top:8px;color:#667085">
+          <div>Recent</div>
+          <div style="margin-top:4px">Done · IMG_1041.CR3</div>
+          <div>Failed · video-edit.mov</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">文件浏览页</div>
+  <div class="mockup-body">
+    <div style="display:grid;gap:6px;font-size:12px">
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr) 86px 126px 76px;gap:8px;align-items:center;padding:8px;border-bottom:1px solid #e6eaf2;color:#667085">
+        <span></span><strong>Name</strong><strong>Size</strong><strong>Modified</strong><strong>Status</strong>
+      </div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr) 86px 126px 76px;gap:8px;align-items:center;padding:8px;border-left:3px solid #3B6BF5;background:#eef3ff;border-radius:4px">
+        <span>F</span>
+        <div style="min-width:0">
+          <strong>IMG_1042.CR3</strong>
+          <div style="height:4px;background:#d9e2ff;border-radius:4px;margin-top:5px;overflow:hidden"><div style="width:58%;height:100%;background:#3B6BF5"></div></div>
+          <div style="color:#667085;margin-top:3px">Uploading · 812 MB / 1.4 GB · 58%</div>
+        </div>
+        <span>1.4 GB</span><span>Just now</span><span style="color:#3B6BF5">Syncing</span>
+      </div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr) 86px 126px 76px;gap:8px;align-items:center;padding:8px;border-bottom:1px solid #e6eaf2">
+        <span>F</span><span>IMG_1041.CR3</span><span>1.1 GB</span><span>1 min ago</span><span style="color:#1FA463">Synced</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>UI 设计要点</h3>
+  <p>仪表盘显示所有活跃同步对的紧凑摘要；同步对页提供右侧详情；文件浏览页只对“当前文件”做行内进度，不把整个队列塞进文件列表。</p>
+</div>
