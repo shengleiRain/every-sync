@@ -168,7 +168,7 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <div style={styles.cardRow}>
+      <div style={styles.metricsFlow}>
         <MetricCard
           label={t('dashboard.engineStatus')}
           value={engineLabel}
@@ -195,9 +195,6 @@ export const Dashboard: React.FC = () => {
           icon={<SyncIcon size={18} color="var(--accent-violet)" />}
           t={t}
         />
-      </div>
-
-      <div style={styles.cardRow}>
         <TrafficCard label={t('dashboard.upload')} value={formatBytes(stats?.upload_bytes ?? 0)} icon={<UploadIcon size={18} color="var(--accent-blue)" />} />
         <TrafficCard label={t('dashboard.download')} value={formatBytes(stats?.download_bytes ?? 0)} icon={<DownloadIcon size={18} color="var(--accent-green)" />} />
         <TrafficCard label={t('dashboard.conflicts')} value={String(stats?.conflicts ?? 0)} icon={<WarningIcon size={18} color="var(--accent-red)" />} badge={(stats?.conflicts ?? 0) > 0 ? 'red' : undefined} t={t} />
@@ -331,12 +328,15 @@ const TrafficCard: React.FC<TrafficCardProps> = ({ label, value, icon, badge, t 
 );
 
 const styles: Record<string, React.CSSProperties> = {
-  cardRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+  metricsFlow: {
+    display: 'flex',
+    flexWrap: 'wrap',
     gap: 'var(--space-4)',
+    alignItems: 'stretch',
   },
   metricCard: {
+    flex: '1 1 178px',
+    minWidth: 'min(100%, 178px)',
     padding: 'var(--space-4) var(--space-5)',
   },
   sectionTitle: {
