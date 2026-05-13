@@ -54,6 +54,7 @@ func New(s *store.Store, e *engine.Engine, addr string, logPath string) *Server 
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 	api.HandleFunc("GET /api/v1/status", h.Status)
+	api.HandleFunc("GET /api/v1/progress", h.Progress)
 	api.HandleFunc("POST /api/v1/sync", h.TriggerSync)
 	api.HandleFunc("GET /api/v1/events", h.Events)
 

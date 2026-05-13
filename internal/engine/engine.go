@@ -202,6 +202,8 @@ type Engine struct {
 	pairCycle       map[int64]uint64 // pairID -> current sync cycle ID
 	pairSyncing     map[int64]bool   // pairID -> whether a sync is in progress for this pair
 	syncCycle       uint64 // monotonically increasing sync cycle counter
+
+	progress *ProgressTracker
 }
 
 func New(s *store.Store, cfg Config) *Engine {
@@ -223,6 +225,7 @@ func New(s *store.Store, cfg Config) *Engine {
 		pairDirection:   make(map[int64]string),
 		pairCycle:       make(map[int64]uint64),
 		pairSyncing:     make(map[int64]bool),
+		progress:       NewProgressTracker(),
 	}
 }
 
@@ -230,6 +233,10 @@ func New(s *store.Store, cfg Config) *Engine {
 func (e *Engine) WithRegistrar(r PairRegistrar) *Engine {
 	e.registrar = r
 	return e
+}
+
+func (e *Engine) Progress() []PairProgressSnapshot {
+	return e.progress.Snapshots()
 }
 
 // RegisterPair binds providers to a sync pair.
@@ -600,6 +607,8 @@ func (e *Engine) SyncPair(ctx context.Context, pairID int64, direction string) e
 	e.pairCycle[pair.ID] = cycleID
 	e.mu.Unlock()
 
+	e.progress.StartSync(pair.ID, pair.Name, string(dir), 0)
+
 	e.broadcast(Event{Type: "sync_started", PairID: pair.ID, PairName: pair.Name, Direction: string(dir)})
 
 	// Wrap syncOnePair to inject cycleID into tasks
@@ -822,6 +831,8 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 			e.pairPending[pair.ID] = taskCount
 		}
 	e.mu.Unlock()
+
+	e.progress.SetTotals(pair.ID, uploadCount+downloadCount, taskCount)
 
 	if e.config.DryRun {
 		for _, task := range tasks {
@@ -2183,10 +2194,12 @@ func (e *Engine) processResults() {
 				} else {
 					atomic.AddInt64(&e.pending, -1)
 					logger.L.Error().Err(result.Error).Str("path", result.Task.Path).Str("type", string(result.Task.Type)).Msg("task permanently failed")
+					e.progress.FailTask(pairID, string(result.Task.Type), result.Task.Path, result.Error.Error())
 					e.broadcast(Event{Type: "task_failed", PairID: pairID, TaskType: string(result.Task.Type), Path: result.Task.Path, Error: result.Error.Error(), Pending: atomic.LoadInt64(&e.pending)})
 				}
 			} else {
 				atomic.AddInt64(&e.pending, -1)
+				e.progress.CompleteTask(pairID, string(result.Task.Type), result.Task.Path)
 				// Track synced file count for upload/download tasks.
 				if result.Task.Type == TaskUpload || result.Task.Type == TaskDownload {
 					e.mu.Lock()
@@ -2215,6 +2228,7 @@ func (e *Engine) processResults() {
 					synced := e.pairFilesSynced[pairID]
 					total := e.pairFilesTotal[pairID]
 					e.mu.Unlock()
+					e.progress.FinishSync(pairID)
 					e.broadcast(Event{Type: "sync_completed", PairID: pairID, PairName: pairName, Direction: direction, FilesSynced: synced, FilesTotal: total})
 				} else {
 					e.mu.Unlock()
@@ -2437,6 +2451,7 @@ func (e *Engine) transferReader(reader io.Reader, size, bytesPerSecond int64, pa
 			filePath:  filePath,
 			taskType:  taskType,
 			emit:      e.broadcast,
+			track:     e.progress.ChunkTransferred,
 		}
 	}
 	if bytesPerSecond <= 0 {
@@ -2459,6 +2474,7 @@ type chunkProgressReader struct {
 	filePath  string
 	taskType  TaskType
 	emit      func(Event)
+	track     func(pairID int64, filePath string, transferred, total int64)
 }
 
 func (r *chunkProgressReader) Read(p []byte) (int, error) {
@@ -2469,6 +2485,7 @@ func (r *chunkProgressReader) Read(p []byte) (int, error) {
 	if n > 0 {
 		r.read += int64(n)
 		for r.read >= r.next || (err == io.EOF && r.read == r.size) {
+			r.track(r.pair.ID, r.filePath, r.read, r.size)
 			r.emit(Event{
 				Type:             "chunk_transferred",
 				PairID:           r.pair.ID,

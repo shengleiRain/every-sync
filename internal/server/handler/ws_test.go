@@ -294,9 +294,10 @@ func TestListLogsReadsFile(t *testing.T) {
 }
 
 type trackingFakeEngine struct {
-	refreshes        int
-	unregistered     int32
+	refreshes          int
+	unregistered       int32
 	lastUnregisteredID int64
+	progress           []syncengine.PairProgressSnapshot
 }
 
 func (f *trackingFakeEngine) RefreshPairs() error {
@@ -326,9 +327,11 @@ func (f *trackingFakeEngine) Subscribe(context.Context) <-chan syncengine.Event 
 func (f *trackingFakeEngine) ListPairFiles(context.Context, int64, string, string) ([]*syncengine.FileListEntry, error) {
 	return nil, nil
 }
+func (f *trackingFakeEngine) Progress() []syncengine.PairProgressSnapshot { return f.progress }
 
 type fakeEngine struct {
 	refreshes int
+	progress  []syncengine.PairProgressSnapshot
 }
 
 func (f *fakeEngine) RefreshPairs() error {
@@ -354,4 +357,42 @@ func (f *fakeEngine) Subscribe(context.Context) <-chan syncengine.Event {
 }
 func (f *fakeEngine) ListPairFiles(context.Context, int64, string, string) ([]*syncengine.FileListEntry, error) {
 	return nil, nil
+}
+func (f *fakeEngine) Progress() []syncengine.PairProgressSnapshot { return f.progress }
+
+func TestProgressReturnsEngineSnapshots(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	engine := &fakeEngine{
+		progress: []syncengine.PairProgressSnapshot{{
+			PairID:       7,
+			PairName:     "photos",
+			Status:       "syncing",
+			Direction:    "up",
+			FilesSynced:  2,
+			FilesTotal:   5,
+			PendingTasks: 3,
+		}},
+	}
+	h := New(s, engine, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/progress", nil)
+	rec := httptest.NewRecorder()
+
+	h.Progress(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got []syncengine.PairProgressSnapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got) != 1 || got[0].PairID != 7 || got[0].Status != "syncing" {
+		t.Fatalf("progress = %+v", got)
+	}
 }

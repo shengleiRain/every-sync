@@ -34,6 +34,7 @@ type Handler struct {
 		Subscribe(ctx context.Context) <-chan syncengine.Event
 		ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
 		UnregisterPair(pairID int64)
+		Progress() []syncengine.PairProgressSnapshot
 	}
 	logPath string
 }
@@ -49,12 +50,17 @@ func New(s *store.Store, e interface {
 	Subscribe(ctx context.Context) <-chan syncengine.Event
 	ListPairFiles(ctx context.Context, pairID int64, dirPath, side string) ([]*syncengine.FileListEntry, error)
 	UnregisterPair(pairID int64)
+	Progress() []syncengine.PairProgressSnapshot
 }, logPath string) *Handler {
 	return &Handler{store: s, engine: e, logPath: logPath}
 }
 
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.engine.Status())
+}
+
+func (h *Handler) Progress(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.engine.Progress())
 }
 
 type TriggerSyncRequest struct {
