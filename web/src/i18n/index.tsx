@@ -268,6 +268,15 @@ const translations: Record<Lang, Record<string, string>> = {
     'logs.connected': 'Live',
     'logs.disconnected': 'Disconnected',
     'logs.scrollToBottom': 'Scroll to bottom',
+
+    // Progress
+    'progress.processing': 'Processing...',
+    'progress.noActive': 'No active transfer',
+    'progress.current': 'Current',
+    'progress.queue': 'Queue',
+    'progress.transfer': 'Transfer',
+    'progress.recent': 'Recent',
+    'progress.noRecent': 'No recent files',
   },
 
   zh: {
@@ -501,6 +510,15 @@ const translations: Record<Lang, Record<string, string>> = {
     'logs.connected': '实时',
     'logs.disconnected': '已断开',
     'logs.scrollToBottom': '滚动到底部',
+
+    // Progress
+    'progress.processing': '处理中...',
+    'progress.noActive': '没有正在传输的文件',
+    'progress.current': '当前文件',
+    'progress.queue': '队列',
+    'progress.transfer': '传输',
+    'progress.recent': '最近记录',
+    'progress.noRecent': '暂无最近文件',
   },
 };
 
