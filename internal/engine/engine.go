@@ -801,9 +801,17 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	// Attempt incremental scan for remote side.
 	// If the remote root's tag matches the cached value, skip the full remote scan
 	// and reconstruct file list from DB entries.
+	remoteRootMissing := false
 	remoteFiles, err = e.scanRemote(ctx, remote, pair)
 	if err != nil {
-		return fmt.Errorf("scan remote: %w", err)
+		if !isMissingRootScan(err) || dir == DirectionDown {
+			return fmt.Errorf("scan remote: %w", err)
+		}
+		if err := remote.CreateDir(ctx, "/"); err != nil {
+			return fmt.Errorf("create remote root: %w", err)
+		}
+		remoteRootMissing = true
+		remoteFiles = nil
 	}
 	localFiles = filterPairFiles(pair, localFiles)
 	remoteFiles = filterPairFiles(pair, remoteFiles)
@@ -817,7 +825,11 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	// Load DB entries for deletion detection
 	dbEntries, _ := e.store.ListFileEntriesByPair(pair.ID)
 
-	tasks := e.generateTasks(ctx, pair, localFiles, remoteFiles, dbEntries, dir)
+	taskDirection := dir
+	if remoteRootMissing && dir == DirectionBoth {
+		taskDirection = DirectionUp
+	}
+	tasks := e.generateTasks(ctx, pair, localFiles, remoteFiles, dbEntries, taskDirection)
 	taskPaths := make(map[string]bool, len(tasks))
 
 	uploadCount, downloadCount, deleteCount := 0, 0, 0
@@ -891,6 +903,10 @@ func (e *Engine) syncOnePair(ctx context.Context, pair *store.SyncPair, local, r
 	}
 
 	return nil
+}
+
+func isMissingRootScan(err error) bool {
+	return errors.Is(err, provider.ErrNotFound) && strings.Contains(err.Error(), "list directory /:")
 }
 
 func taskProgressDirection(task SyncTask) string {

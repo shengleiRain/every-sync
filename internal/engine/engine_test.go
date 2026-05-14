@@ -298,6 +298,39 @@ func TestScanRecursiveReturnsErrorWhenDirectoryListFails(t *testing.T) {
 	}
 }
 
+func TestSyncRecreatesMissingRemoteRootWithoutDeletingLocalInBothDirection(t *testing.T) {
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+	writeTestFile(t, localDir, "keep.txt", "local data")
+
+	s := newTestStore(t)
+	pair := &store.SyncPair{
+		Name:       "missing-remote-root",
+		LocalPath:  localDir,
+		RemotePath: remoteDir,
+		Provider:   "local",
+		Mode:       "normal",
+		Direction:  "both",
+		Enabled:    true,
+	}
+	if err := s.CreateSyncPair(pair); err != nil {
+		t.Fatalf("create pair: %v", err)
+	}
+
+	eng := newStartedTestEngine(t, s, pair, Config{RetryMax: 0})
+	runPairSync(t, eng, pair.ID, "both")
+	assertFileContent(t, remoteDir, "keep.txt", "local data")
+
+	if err := os.RemoveAll(remoteDir); err != nil {
+		t.Fatalf("remove remote root: %v", err)
+	}
+
+	runPairSync(t, eng, pair.ID, "both")
+
+	assertFileContent(t, localDir, "keep.txt", "local data")
+	assertFileContent(t, remoteDir, "keep.txt", "local data")
+}
+
 func TestEngineBidirectionalIndexesIdenticalContentWithDifferentModTimes(t *testing.T) {
 	s := newTestStore(t)
 	localDir := t.TempDir()
