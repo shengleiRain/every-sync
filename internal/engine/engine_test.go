@@ -331,6 +331,24 @@ func TestSyncRecreatesMissingRemoteRootWithoutDeletingLocalInBothDirection(t *te
 	assertFileContent(t, remoteDir, "keep.txt", "local data")
 }
 
+func TestGenerateTasksIgnoresRootCacheEntry(t *testing.T) {
+	eng := New(newTestStore(t), Config{})
+	pair := &store.SyncPair{ID: 1, Direction: "both", Mode: "normal"}
+
+	tasks := eng.generateTasks(
+		context.Background(),
+		pair,
+		nil,
+		[]*provider.FileMeta{{Path: "/", IsDir: true}},
+		[]*store.FileEntry{{Path: "/", SyncPairID: pair.ID, SyncState: "synced", IsDir: true}},
+		DirectionBoth,
+	)
+
+	if len(tasks) != 0 {
+		t.Fatalf("generateTasks returned %d tasks for root cache entry, want 0: %#v", len(tasks), tasks)
+	}
+}
+
 func TestEngineBidirectionalIndexesIdenticalContentWithDifferentModTimes(t *testing.T) {
 	s := newTestStore(t)
 	localDir := t.TempDir()

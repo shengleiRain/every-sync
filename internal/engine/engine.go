@@ -1008,6 +1008,9 @@ func (e *Engine) scanRemote(ctx context.Context, remote provider.Provider, pair 
 
 	result := make([]*provider.FileMeta, 0, len(dbEntries))
 	for _, entry := range dbEntries {
+		if isRootPath(entry.Path) {
+			continue
+		}
 		meta := &provider.FileMeta{
 			Path:  entry.Path,
 			IsDir: entry.IsDir,
@@ -1062,6 +1065,9 @@ func (e *Engine) generateTasks(ctx context.Context, pair *store.SyncPair, localF
 	}
 
 	for key := range keys {
+		if isRootPath(key) {
+			continue
+		}
 		localMeta, hasLocal := localMap[key]
 		remoteMeta, hasRemote := remoteMap[key]
 		entry := entryMap[key]
